@@ -57,7 +57,7 @@ router.post("/requests/:id/approve", requireRole("OWNER"), requireCsrf, requireO
     const updated = await AccommodationRequest.findOneAndUpdate(
       { _id: request._id, status: "PENDING" },
       { $set: { status: "APPROVED", reviewedAt: new Date() } },
-      { new: true }
+      { returnDocument: "after" }
     );
     if (!updated) return res.status(409).json({ message: "Request changed. Refresh and try again" });
     request = updated;
@@ -66,7 +66,7 @@ router.post("/requests/:id/approve", requireRole("OWNER"), requireCsrf, requireO
   // This MVP uses two writes without a transaction; production should use MongoDB transactions.
   await Membership.findOneAndUpdate(membershipFilter,
     { $setOnInsert: { ...membershipFilter, status: "ACTIVE", joinedAt: new Date() } },
-    { new: true, upsert: true, runValidators: true }
+    { returnDocument: "after", upsert: true, runValidators: true }
   );
   res.json({ message: "Resident approved", request });
 }));
@@ -79,7 +79,7 @@ router.post("/requests/:id/reject", requireRole("OWNER"), requireCsrf, requireOb
   const updated = await AccommodationRequest.findOneAndUpdate(
     { _id: request._id, status: "PENDING" },
     { $set: { status: "REJECTED", reviewedAt: new Date() } },
-    { new: true }
+    { returnDocument: "after" }
   );
   if (!updated) return res.status(409).json({ message: "Only pending requests can be rejected" });
   res.json({ message: "Request rejected", request: updated });
@@ -98,7 +98,7 @@ router.delete("/houses/:houseId/members/:studentId", requireRole("OWNER"), requi
   if (!house) return res.status(404).json({ message: "Your property was not found" });
   const membership = await Membership.findOneAndUpdate(
     { boardingHouseId: house._id, studentId: req.params.studentId, status: "ACTIVE" },
-    { $set: { status: "REVOKED", revokedAt: new Date() } }, { new: true }
+    { $set: { status: "REVOKED", revokedAt: new Date() } }, { returnDocument: "after" }
   );
   if (!membership) return res.status(404).json({ message: "Active membership not found" });
   res.json({ message: "Resident access revoked" });

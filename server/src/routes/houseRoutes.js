@@ -227,7 +227,7 @@ router.patch(
         status: "ACTIVE",
       },
       { $set: updates },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
 
     if (!house) {
@@ -255,7 +255,7 @@ router.delete(
         status: "ACTIVE",
       },
       { $set: { status: "ARCHIVED" } },
-      { new: true }
+      { returnDocument: "after" }
     );
 
     if (!house) {

@@ -20,7 +20,9 @@ const app = express();
 if (process.env.NODE_ENV === "production") app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet());
-app.use(express.json({ limit: "20kb" }));
+// The API only accepts ordinary, uncompressed JSON from the Vite frontend.
+// Reject compressed request bodies to reduce parser attack surface.
+app.use(express.json({ limit: "20kb", inflate: false }));
 app.use("/api", rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: "draft-7", legacyHeaders: false }));
 
 app.use(session({
