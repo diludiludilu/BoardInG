@@ -9,10 +9,28 @@ export function Maintenance({ user }) {
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadedHouseId, setLoadedHouseId] = useState(null);
+  const loading = loadedHouseId !== houseId;
   const [busy, setBusy] = useState(false);
   async function refresh() { setIssues(await api(`/houses/${houseId}/issues`)); }
-  useEffect(() => { setError(""); refresh().catch((e) => setError(e.message)).finally(() => setLoading(false)); }, [houseId]);
+  useEffect(() => {
+    let active = true;
+    api(`/houses/${houseId}/issues`)
+      .then((data) => {
+        if (!active) return;
+        setIssues(data);
+        setError("");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setIssues([]);
+        setError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadedHouseId(houseId);
+      });
+    return () => { active = false; };
+  }, [houseId]);
   async function submit(event) {
     event.preventDefault(); setError(""); setNotice(""); setBusy(true);
     try { await api(`/houses/${houseId}/issues`, { method: "POST", body: JSON.stringify({ title, description }) }); setTitle(""); setDescription(""); await refresh(); setNotice("Maintenance issue submitted."); }
