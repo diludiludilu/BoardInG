@@ -21,7 +21,19 @@ export function StudentRequests() {
     const [houseData, requestData, memberData] = await Promise.all([api("/houses"), api("/requests/mine"), api("/memberships/mine")]);
     setHouses(houseData); setRequests(requestData); setMemberships(memberData);
   }
-  useEffect(() => { refresh().catch((e) => setError(e.message)).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([api("/houses"), api("/requests/mine"), api("/memberships/mine")])
+      .then(([houseData, requestData, memberData]) => {
+        if (!active) return;
+        setHouses(houseData);
+        setRequests(requestData);
+        setMemberships(memberData);
+      })
+      .catch((error) => { if (active) setError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
     try {
@@ -56,7 +68,14 @@ export function OwnerRequests() {
   const [busyId, setBusyId] = useState(null);
   const [loading, setLoading] = useState(true);
   async function refresh() { setRequests(await api("/owner/requests")); }
-  useEffect(() => { refresh().catch((e) => setError(e.message)).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    let active = true;
+    api("/owner/requests")
+      .then((data) => { if (active) setRequests(data); })
+      .catch((error) => { if (active) setError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
   async function decide(id, action) {
     setBusyId(id); setError(""); setNotice("");
     try { const response = await api(`/requests/${id}/${action}`, { method: "POST" }); await refresh(); setNotice(response.message); }
@@ -83,7 +102,20 @@ export function OwnerResidents() {
     const memberLists = await Promise.all(ownHouses.map(async (h) => [h._id, await api(`/houses/${h._id}/members`)]));
     setMembers(Object.fromEntries(memberLists));
   }
-  useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
+  useEffect(() => {
+    let active = true;
+    api("/houses/mine")
+      .then(async (ownHouses) => {
+        const lists = await Promise.all(
+          ownHouses.map(async (house) => [house._id, await api(`/houses/${house._id}/members`)])
+        );
+        if (!active) return;
+        setHouses(ownHouses);
+        setMembers(Object.fromEntries(lists));
+      })
+      .catch((error) => { if (active) setError(error.message); });
+    return () => { active = false; };
+  }, []);
   async function revoke(houseId, studentId) {
     if (!window.confirm("Remove this resident's community access?")) return;
     setBusy(studentId); setError(""); setNotice("");
