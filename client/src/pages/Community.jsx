@@ -9,10 +9,30 @@ export function Community({ user }) {
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadedHouseId, setLoadedHouseId] = useState(null);
+  const loading = loadedHouseId !== houseId;
   const [busy, setBusy] = useState(false);
   async function refresh() { const data = await api(`/houses/${houseId}/posts`); setHouse(data.house); setPosts(data.posts); }
-  useEffect(() => { setLoading(true); setError(""); refresh().catch((e) => setError(e.message)).finally(() => setLoading(false)); }, [houseId]);
+  useEffect(() => {
+    let active = true;
+    api(`/houses/${houseId}/posts`)
+      .then((data) => {
+        if (!active) return;
+        setHouse(data.house);
+        setPosts(data.posts);
+        setError("");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setHouse(null);
+        setPosts([]);
+        setError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadedHouseId(houseId);
+      });
+    return () => { active = false; };
+  }, [houseId]);
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
     try { await api(`/houses/${houseId}/posts`, { method: "POST", body: JSON.stringify({ content }) }); setContent(""); await refresh(); setNotice(user.role === "OWNER" ? "Announcement published." : "Post published."); }
