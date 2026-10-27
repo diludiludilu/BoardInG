@@ -231,7 +231,9 @@ export function OwnerHouses() {
   }
 
   useEffect(() => {
-    loadHouses().catch((err) => setError(err.message));
+    api("/houses/mine")
+      .then(setHouses)
+      .catch((error) => setError(error.message));
   }, []);
 
   function update(field, value) {
