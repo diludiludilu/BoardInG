@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../services/api";
@@ -18,7 +17,7 @@ function HouseCard({ house }) {
   return (
     <Link
       to={`/houses/${house._id}`}
-      className="overflow-hidden rounded-xl bg-white shadow-sm transition hover:shadow-md"
+      className="overflow-hidden rounded-xl bg-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
     >
       {house.imageUrl ? (
         <img
@@ -97,34 +96,68 @@ export function BrowseHouses() {
 
       <form
         onSubmit={searchHouses}
-        className="mt-6 flex flex-wrap gap-3 rounded-xl bg-white p-5 shadow-sm"
+        className="mt-6 flex flex-wrap items-end gap-3 rounded-xl bg-white p-5 shadow-sm"
       >
-        <input
-          className="min-w-48 flex-1 rounded-lg border p-3"
-          placeholder="City or area"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          maxLength={80}
-        />
+        <div className="min-w-48 flex-1">
+          <label
+            htmlFor="search-city"
+            className="block text-sm font-medium text-slate-700"
+          >
+            City or area
+          </label>
+          <input
+            id="search-city"
+            className="mt-1 w-full rounded-lg border border-slate-300 p-3 transition focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            placeholder="City or area"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            maxLength={80}
+          />
+        </div>
 
-        <input
-          type="number"
-          min="1"
-          className="min-w-40 flex-1 rounded-lg border p-3"
-          placeholder="Maximum monthly rent"
-          value={maxRent}
-          onChange={(e) => setMaxRent(e.target.value)}
-        />
+        <div className="min-w-40 flex-1">
+          <label
+            htmlFor="search-maxRent"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Maximum monthly rent (LKR)
+          </label>
+          <input
+            id="search-maxRent"
+            type="number"
+            min="1"
+            className="mt-1 w-full rounded-lg border border-slate-300 p-3 transition focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            placeholder="Maximum monthly rent"
+            value={maxRent}
+            onChange={(e) => setMaxRent(e.target.value)}
+          />
+        </div>
 
-        <button className="rounded-lg bg-blue-700 px-6 py-3 text-white">
+        <button
+          type="submit"
+          className="rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+        >
           Search
         </button>
       </form>
 
-      {error && <p className="mt-5 text-red-600">{error}</p>}
+      {error && (
+        <p
+          role="alert"
+          className="mt-5 rounded-lg bg-red-50 p-4 text-sm font-medium text-red-700"
+        >
+          {error}
+        </p>
+      )}
 
       {loading ? (
-        <p className="mt-6">Loading boarding houses...</p>
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-6 text-slate-500"
+        >
+          Loading boarding houses...
+        </p>
       ) : houses.length === 0 ? (
         <p className="mt-6 text-slate-600">
           No matching boarding houses found.
@@ -144,74 +177,162 @@ export function BrowseHouses() {
 export function BoardingDetails({ user }) {
   const { id } = useParams();
 
-  const [house, setHouse] = useState(null);
-  const [error, setError] = useState("");
+  const [state, setState] = useState({
+    houseId: null,
+    key: 0,
+    house: null,
+    error: "",
+    loading: true,
+  });
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const isCurrent = state.houseId === id && state.key === reloadKey;
+  const house = isCurrent ? state.house : null;
+  const error = isCurrent ? state.error : "";
+  const loading = !isCurrent || state.loading;
 
   useEffect(() => {
+    let ignore = false;
+
     api(`/houses/${id}`)
-      .then(setHouse)
-      .catch((err) => setError(err.message));
-  }, [id]);
+      .then((data) => {
+        if (!ignore) {
+          setState({
+            houseId: id,
+            key: reloadKey,
+            house: data,
+            error: "",
+            loading: false,
+          });
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setState({
+            houseId: id,
+            key: reloadKey,
+            house: null,
+            error: err.message,
+            loading: false,
+          });
+        }
+      });
 
-  if (error) {
-    return <p className="p-6 text-red-600">{error}</p>;
-  }
-
-  if (!house) {
-    return <p className="p-6">Loading details...</p>;
-  }
+    return () => {
+      ignore = true;
+    };
+  }, [id, reloadKey]);
 
   return (
     <main className="mx-auto max-w-4xl space-y-5 p-6">
-      <Link to="/houses" className="text-blue-700">
+      <Link
+        to="/houses"
+        className="inline-flex items-center text-sm font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+      >
         ← Back to listings
       </Link>
 
-      <h1 className="text-3xl font-bold">{house.title}</h1>
-
-      <p className="text-slate-600">
-        {house.area}, {house.city}
-      </p>
-
-      {house.imageUrl && (
-        <img
-          src={house.imageUrl}
-          alt={house.title}
-          className="max-h-96 w-full rounded-xl object-cover"
-        />
+      {error && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700"
+        >
+          <h1 className="text-xl font-bold">Unable to display boarding house</h1>
+          <p className="mt-2 text-sm">{error}</p>
+          <p className="mt-3 text-sm text-red-600">
+            The property may have been archived, removed, or the link is invalid.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
+            >
+              Try again
+            </button>
+            <Link
+              to="/houses"
+              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
+            >
+              Browse all houses
+            </Link>
+          </div>
+        </div>
       )}
 
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <p className="text-2xl font-bold text-blue-700">
-          LKR {house.monthlyRentLkr.toLocaleString()} / month
-        </p>
+      {loading && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl bg-white p-8 text-center text-slate-500 shadow-sm"
+        >
+          <p className="text-base font-medium">Loading details...</p>
+        </div>
+      )}
 
-        <p className="mt-3">
-          Availability: {house.availability}
-        </p>
+      {!loading && !error && house && (
+        <>
+          <h1 className="text-3xl font-bold">{house.title}</h1>
 
-        <h2 className="mt-6 text-xl font-semibold">
-          Description
-        </h2>
-        <p className="mt-2 whitespace-pre-wrap">
-          {house.description}
-        </p>
+          <p className="text-slate-600">
+            {house.area}, {house.city}
+          </p>
 
-        <h2 className="mt-6 text-xl font-semibold">
-          Facilities
-        </h2>
-        <p className="mt-2">
-          {house.facilities.length
-            ? house.facilities.join(", ")
-            : "Not specified"}
-        </p>
+          {house.imageUrl && (
+            <img
+              src={house.imageUrl}
+              alt={house.title}
+              className="max-h-96 w-full rounded-xl object-cover"
+            />
+          )}
 
-        {house.availability === "AVAILABLE" && user?.role === "STUDENT" && (
-          <Link to={`/student/requests?houseId=${house._id}`} className="mt-6 inline-block rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white">Request accommodation →</Link>
-        )}
-        {!user && <Link to="/login" className="mt-6 inline-block rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white">Sign in to request accommodation →</Link>}
-        {house.availability === "FULL" && <p className="mt-5 text-amber-700">This house is currently full.</p>}
-      </div>
+          <div className="rounded-xl bg-white p-6 shadow-sm">
+            <p className="text-2xl font-bold text-blue-700">
+              LKR {house.monthlyRentLkr.toLocaleString()} / month
+            </p>
+
+            <p className="mt-3">
+              Availability: {house.availability}
+            </p>
+
+            <h2 className="mt-6 text-xl font-semibold">
+              Description
+            </h2>
+            <p className="mt-2 whitespace-pre-wrap">
+              {house.description}
+            </p>
+
+            <h2 className="mt-6 text-xl font-semibold">
+              Facilities
+            </h2>
+            <p className="mt-2">
+              {house.facilities.length
+                ? house.facilities.join(", ")
+                : "Not specified"}
+            </p>
+
+            {house.availability === "AVAILABLE" && user?.role === "STUDENT" && (
+              <Link
+                to={`/student/requests?houseId=${house._id}`}
+                className="mt-6 inline-block rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+              >
+                Request accommodation →
+              </Link>
+            )}
+            {!user && (
+              <Link
+                to="/login"
+                className="mt-6 inline-block rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+              >
+                Sign in to request accommodation →
+              </Link>
+            )}
+            {house.availability === "FULL" && (
+              <p className="mt-5 text-amber-700">This house is currently full.</p>
+            )}
+          </div>
+        </>
+      )}
     </main>
   );
 }
@@ -325,7 +446,8 @@ export function OwnerHouses() {
     }
   }
 
-  const inputClass = "w-full rounded-lg border p-3";
+  const inputClass =
+    "mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 transition focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600";
 
   return (
     <main className="mx-auto max-w-5xl space-y-8 p-6">
@@ -341,95 +463,173 @@ export function OwnerHouses() {
           {editingId ? "Edit Boarding House" : "Add Boarding House"}
         </h2>
 
-        <input
-          className={inputClass}
-          placeholder="Boarding house name"
-          value={form.title}
-          onChange={(e) => update("title", e.target.value)}
-          minLength={5}
-          maxLength={100}
-          required
-        />
-
-        <textarea
-          className={inputClass}
-          placeholder="Description (minimum 20 characters)"
-          value={form.description}
-          onChange={(e) => update("description", e.target.value)}
-          minLength={20}
-          maxLength={1500}
-          rows={3}
-          required
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label
+            htmlFor="house-title"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Boarding house name
+          </label>
           <input
+            id="house-title"
             className={inputClass}
-            placeholder="City"
-            value={form.city}
-            onChange={(e) => update("city", e.target.value)}
-            maxLength={80}
-            required
-          />
-
-          <input
-            className={inputClass}
-            placeholder="Area"
-            value={form.area}
-            onChange={(e) => update("area", e.target.value)}
-            maxLength={80}
+            placeholder="Boarding house name"
+            value={form.title}
+            onChange={(e) => update("title", e.target.value)}
+            minLength={5}
+            maxLength={100}
             required
           />
         </div>
 
-        <input
-          className={inputClass}
-          type="number"
-          placeholder="Monthly rent in LKR"
-          min="1"
-          max="1000000"
-          step="1"
-          value={form.monthlyRentLkr}
-          onChange={(e) =>
-            update("monthlyRentLkr", e.target.value)
-          }
-          required
-        />
+        <div>
+          <label
+            htmlFor="house-description"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Description (minimum 20 characters)
+          </label>
+          <textarea
+            id="house-description"
+            className={inputClass}
+            placeholder="Description (minimum 20 characters)"
+            value={form.description}
+            onChange={(e) => update("description", e.target.value)}
+            minLength={20}
+            maxLength={1500}
+            rows={3}
+            required
+          />
+        </div>
 
-        <input
-          className={inputClass}
-          placeholder="Facilities: Wi-Fi, Kitchen, Water"
-          value={form.facilities}
-          onChange={(e) => update("facilities", e.target.value)}
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label
+              htmlFor="house-city"
+              className="block text-sm font-medium text-slate-700"
+            >
+              City
+            </label>
+            <input
+              id="house-city"
+              className={inputClass}
+              placeholder="City"
+              value={form.city}
+              onChange={(e) => update("city", e.target.value)}
+              maxLength={80}
+              required
+            />
+          </div>
 
-        <input
-          className={inputClass}
-          type="url"
-          placeholder="HTTPS image URL (optional)"
-          value={form.imageUrl}
-          onChange={(e) => update("imageUrl", e.target.value)}
-        />
+          <div>
+            <label
+              htmlFor="house-area"
+              className="block text-sm font-medium text-slate-700"
+            >
+              Area
+            </label>
+            <input
+              id="house-area"
+              className={inputClass}
+              placeholder="Area"
+              value={form.area}
+              onChange={(e) => update("area", e.target.value)}
+              maxLength={80}
+              required
+            />
+          </div>
+        </div>
 
-        <select
-          className={inputClass}
-          value={form.availability}
-          onChange={(e) =>
-            update("availability", e.target.value)
-          }
-        >
-          <option value="AVAILABLE">Available</option>
-          <option value="FULL">Currently Full</option>
-        </select>
+        <div>
+          <label
+            htmlFor="house-rent"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Monthly rent (LKR)
+          </label>
+          <input
+            id="house-rent"
+            className={inputClass}
+            type="number"
+            placeholder="Monthly rent in LKR"
+            min="1"
+            max="1000000"
+            step="1"
+            value={form.monthlyRentLkr}
+            onChange={(e) =>
+              update("monthlyRentLkr", e.target.value)
+            }
+            required
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="house-facilities"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Facilities (comma-separated: Wi-Fi, Kitchen, Water)
+          </label>
+          <input
+            id="house-facilities"
+            className={inputClass}
+            placeholder="Facilities: Wi-Fi, Kitchen, Water"
+            value={form.facilities}
+            onChange={(e) => update("facilities", e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="house-image"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Property image URL (optional, HTTPS)
+          </label>
+          <input
+            id="house-image"
+            className={inputClass}
+            type="url"
+            placeholder="HTTPS image URL (optional)"
+            value={form.imageUrl}
+            onChange={(e) => update("imageUrl", e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="house-availability"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Availability
+          </label>
+          <select
+            id="house-availability"
+            className={inputClass}
+            value={form.availability}
+            onChange={(e) =>
+              update("availability", e.target.value)
+            }
+          >
+            <option value="AVAILABLE">Available</option>
+            <option value="FULL">Currently Full</option>
+          </select>
+        </div>
 
         {error && (
-          <p role="alert" className="text-red-600">
+          <p
+            role="alert"
+            className="rounded-lg bg-red-50 p-4 text-sm font-medium text-red-700"
+          >
             {error}
           </p>
         )}
 
         {message && (
-          <p role="status" className="text-green-700">
+          <p
+            role="status"
+            className="rounded-lg bg-green-50 p-4 text-sm font-medium text-green-800"
+          >
             {message}
           </p>
         )}
@@ -438,7 +638,7 @@ export function OwnerHouses() {
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-blue-700 px-6 py-3 text-white disabled:opacity-50"
+            className="rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             {busy
               ? "Saving..."
@@ -451,7 +651,7 @@ export function OwnerHouses() {
             <button
               type="button"
               onClick={resetForm}
-              className="rounded-lg border px-6 py-3"
+              className="rounded-lg border border-slate-300 px-6 py-3 font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
             >
               Cancel Editing
             </button>
@@ -489,14 +689,14 @@ export function OwnerHouses() {
                 {house.status === "ACTIVE" && (
                   <div className="mt-3 flex flex-wrap gap-4">
                     <button
-                      className="text-blue-700"
+                      className="font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
                       onClick={() => editHouse(house)}
                     >
                       Edit
                     </button>
 
                     <button
-                      className="text-red-600"
+                      className="font-medium text-red-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
                       onClick={() =>
                         archiveHouse(house._id)
                       }
@@ -506,7 +706,7 @@ export function OwnerHouses() {
 
                     <Link
                       to={`/houses/${house._id}`}
-                      className="text-slate-600"
+                      className="font-medium text-slate-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
                     >
                       View Listing
                     </Link>
