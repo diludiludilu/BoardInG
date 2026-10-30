@@ -17,7 +17,7 @@ function HouseCard({ house }) {
   return (
     <Link
       to={`/houses/${house._id}`}
-      className="overflow-hidden rounded-xl bg-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+      className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
     >
       {house.imageUrl ? (
         <img
@@ -31,7 +31,7 @@ function HouseCard({ house }) {
         </div>
       )}
 
-      <div className="space-y-2 p-4">
+      <div className="space-y-2 p-5">
         <h3 className="text-lg font-semibold">{house.title}</h3>
         <p className="text-sm text-slate-600">
           {house.area}, {house.city}
@@ -88,7 +88,7 @@ export function BrowseHouses() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
       <h1 className="text-3xl font-bold">Find Your Boarding</h1>
       <p className="mt-2 text-slate-600">
         Discover student accommodation with BoardInG.
@@ -96,9 +96,9 @@ export function BrowseHouses() {
 
       <form
         onSubmit={searchHouses}
-        className="mt-6 flex flex-wrap items-end gap-3 rounded-xl bg-white p-5 shadow-sm"
+        className="mt-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:grid-cols-2 lg:flex lg:items-end"
       >
-        <div className="min-w-48 flex-1">
+        <div className="w-full lg:min-w-48 lg:flex-1">
           <label
             htmlFor="search-city"
             className="block text-sm font-medium text-slate-700"
@@ -115,7 +115,7 @@ export function BrowseHouses() {
           />
         </div>
 
-        <div className="min-w-40 flex-1">
+        <div className="w-full lg:min-w-40 lg:flex-1">
           <label
             htmlFor="search-maxRent"
             className="block text-sm font-medium text-slate-700"
@@ -135,7 +135,7 @@ export function BrowseHouses() {
 
         <button
           type="submit"
-          className="rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+          className="w-full rounded-lg bg-blue-700 px-6 py-3 font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:col-span-2 lg:w-auto"
         >
           Search
         </button>
@@ -224,10 +224,10 @@ export function BoardingDetails({ user }) {
   }, [id, reloadKey]);
 
   return (
-    <main className="mx-auto max-w-4xl space-y-5 p-6">
+    <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
       <Link
         to="/houses"
-        className="inline-flex items-center text-sm font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+        className="inline-flex min-h-[44px] items-center rounded-md px-1 text-sm font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
       >
         ← Back to listings
       </Link>
@@ -450,14 +450,14 @@ export function OwnerHouses() {
     "mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 transition focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600";
 
   return (
-    <main className="mx-auto max-w-5xl space-y-8 p-6">
+    <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
       <h1 className="text-3xl font-bold">
         Manage Boarding Houses
       </h1>
 
       <form
         onSubmit={saveHouse}
-        className="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+        className="space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200"
       >
         <h2 className="text-xl font-semibold">
           {editingId ? "Edit Boarding House" : "Add Boarding House"}
@@ -673,7 +673,7 @@ export function OwnerHouses() {
             {houses.map((house) => (
               <div
                 key={house._id}
-                className="rounded-xl bg-white p-5 shadow-sm"
+                className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
               >
                 <h3 className="font-semibold">{house.title}</h3>
 
@@ -687,16 +687,18 @@ export function OwnerHouses() {
                 </p>
 
                 {house.status === "ACTIVE" && (
-                  <div className="mt-3 flex flex-wrap gap-4">
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
                     <button
-                      className="font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
+                      type="button"
+                      className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                       onClick={() => editHouse(house)}
                     >
                       Edit
                     </button>
 
                     <button
-                      className="font-medium text-red-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
+                      type="button"
+                      className="inline-flex min-h-[44px] items-center rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
                       onClick={() =>
                         archiveHouse(house._id)
                       }
@@ -706,7 +708,7 @@ export function OwnerHouses() {
 
                     <Link
                       to={`/houses/${house._id}`}
-                      className="font-medium text-slate-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
+                      className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                     >
                       View Listing
                     </Link>
