@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <title>Hindagala Hillside Lodge - Exterior View</title>
+  <desc>Scenic hillside lodge perched on the lush slopes of Hindagala overlooking Mahaweli river valley near Peradeniya campus.</desc>
+  <defs>
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#dcfce7" />
+      <stop offset="100%" stop-color="#bbf7d0" />
+    </linearGradient>
+    <linearGradient id="roofGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#78350f" />
+      <stop offset="100%" stop-color="#4a1e05" />
+    </linearGradient>
+    <linearGradient id="wallGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f0fdf4" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="340" fill="url(#skyGrad)" />
+  <circle cx="680" cy="90" r="45" fill="#fef08a" opacity="0.85" />
+  <ellipse cx="220" cy="80" rx="90" ry="24" fill="#ffffff" opacity="0.75" />
+  <ellipse cx="460" cy="110" rx="110" ry="28" fill="#ffffff" opacity="0.65" />
+
+  <path d="M70,340 Q110,180 150,110 Q190,180 230,340 Z" fill="#2d6a4f" opacity="0.6" />
+  <path d="M620,340 Q660,160 700,90 Q740,160 780,340 Z" fill="#2d6a4f" opacity="0.6" />
+  <path d="M145,340 Q150,220 155,140" stroke="#7f4f24" stroke-width="8" fill="none" />
+  <path d="M155,140 Q110,110 80,130 M155,140 Q130,90 120,70 M155,140 Q170,80 190,75 M155,140 Q200,105 220,130" stroke="#40916c" stroke-width="6" fill="none" stroke-linecap="round" />
+  <path d="M695,340 Q690,210 685,120" stroke="#7f4f24" stroke-width="8" fill="none" />
+  <path d="M685,120 Q640,90 610,110 M685,120 Q660,70 650,50 M685,120 Q700,60 720,55 M685,120 Q730,85 750,110" stroke="#40916c" stroke-width="6" fill="none" stroke-linecap="round" />
+
+  <rect y="340" width="800" height="160" fill="#16a34a" />
+  <polygon points="350,340 450,340 500,500 300,500" fill="#d4a373" />
+
+  <rect x="200" y="180" width="400" height="170" fill="url(#wallGrad)" rx="2" stroke="#495057" stroke-width="2" />
+  <polygon points="170,185 400,95 630,185" fill="url(#roofGrad)" stroke="#343a40" stroke-width="2" />
+
+  <rect x="230" y="230" width="16" height="120" fill="#ffffff" stroke="#ced4da" stroke-width="1.5" />
+  <rect x="330" y="230" width="16" height="120" fill="#ffffff" stroke="#ced4da" stroke-width="1.5" />
+  <rect x="454" y="230" width="16" height="120" fill="#ffffff" stroke="#ced4da" stroke-width="1.5" />
+  <rect x="554" y="230" width="16" height="120" fill="#ffffff" stroke="#ced4da" stroke-width="1.5" />
+
+  <rect x="375" y="240" width="50" height="110" fill="#582f0e" stroke="#212529" stroke-width="2" rx="3" />
+  <circle cx="415" cy="295" r="4" fill="#facc15" />
+
+  <rect x="260" y="240" width="55" height="65" fill="#bae6fd" stroke="#475569" stroke-width="2" rx="2" />
+  <rect x="485" y="240" width="55" height="65" fill="#bae6fd" stroke="#475569" stroke-width="2" rx="2" />
+
+  <rect x="24" y="24" width="420" height="68" rx="8" fill="#0f172a" fill-opacity="0.88" />
+  <text x="40" y="52" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700">Hindagala Hillside Lodge</text>
+  <text x="40" y="74" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="13">Hindagala, Peradeniya • University of Peradeniya</text>
+</svg>
