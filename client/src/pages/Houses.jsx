@@ -11,18 +11,24 @@ const emptyForm = {
   monthlyRentLkr: "",
   facilities: "",
   imageUrl: "",
+  imageUrls: "",
   availability: "AVAILABLE",
 };
 
 function HouseCard({ house }) {
+  const displayImage =
+    Array.isArray(house.imageUrls) && house.imageUrls.length > 0
+      ? house.imageUrls[0]
+      : house.imageUrl;
+
   return (
     <Link
       to={`/houses/${house._id}`}
       className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:bg-slate-900 dark:ring-slate-800"
     >
-      {house.imageUrl ? (
+      {displayImage ? (
         <img
-          src={house.imageUrl}
+          src={displayImage}
           alt={house.title}
           className="h-44 w-full object-cover"
         />
@@ -47,6 +53,132 @@ function HouseCard({ house }) {
         </p>
       </div>
     </Link>
+  );
+}
+
+// Interactive multi-photo gallery with keyboard navigation and thumbnail strip
+function PropertyGallery({ house }) {
+  const images =
+    Array.isArray(house.imageUrls) && house.imageUrls.length > 0
+      ? house.imageUrls
+      : house.imageUrl
+        ? [house.imageUrl]
+        : [];
+
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [loadError, setLoadError] = useState(false);
+
+  if (images.length === 0) {
+    return null;
+  }
+
+  const currentImage = images[activeIndex] || images[0];
+
+  function handleSelect(idx) {
+    setActiveIndex(idx);
+    setLoadError(false);
+  }
+
+  function handleKeyDown(event) {
+    if (images.length <= 1) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      handleSelect(activeIndex > 0 ? activeIndex - 1 : images.length - 1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      handleSelect(activeIndex < images.length - 1 ? activeIndex + 1 : 0);
+    }
+  }
+
+  return (
+    <section
+      aria-label="Property photo gallery"
+      className="space-y-3"
+      onKeyDown={handleKeyDown}
+      tabIndex={images.length > 1 ? 0 : undefined}
+    >
+      <div className="relative overflow-hidden rounded-xl bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-800">
+        {loadError ? (
+          <div className="flex h-72 w-full flex-col items-center justify-center gap-2 bg-slate-100 text-slate-500 sm:h-96 dark:bg-slate-800 dark:text-slate-400">
+            <svg className="size-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p className="text-sm font-medium">Unable to load photo</p>
+          </div>
+        ) : (
+          <img
+            src={currentImage}
+            alt={`${house.title} - Photo ${activeIndex + 1} of ${images.length}`}
+            className="h-72 w-full object-cover sm:h-96"
+            onError={() => setLoadError(true)}
+          />
+        )}
+
+        {images.length > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="Previous photo"
+              onClick={() =>
+                handleSelect(activeIndex > 0 ? activeIndex - 1 : images.length - 1)
+              }
+              className="absolute left-3 top-1/2 inline-flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/70 p-2 text-white shadow-md backdrop-blur-sm transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              aria-label="Next photo"
+              onClick={() =>
+                handleSelect(activeIndex < images.length - 1 ? activeIndex + 1 : 0)
+              }
+              className="absolute right-3 top-1/2 inline-flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/70 p-2 text-white shadow-md backdrop-blur-sm transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            <div className="absolute bottom-3 right-3 rounded-md bg-slate-900/80 px-2.5 py-1 text-xs font-medium text-white shadow backdrop-blur-sm">
+              {activeIndex + 1} / {images.length}
+            </div>
+          </>
+        )}
+      </div>
+
+      {images.length > 1 && (
+        <div
+          role="tablist"
+          aria-label="Photo thumbnails"
+          className="flex gap-2 overflow-x-auto pb-1"
+        >
+          {images.map((img, idx) => (
+            <button
+              key={idx}
+              type="button"
+              role="tab"
+              aria-selected={activeIndex === idx}
+              aria-label={`View photo ${idx + 1}`}
+              onClick={() => handleSelect(idx)}
+              className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                activeIndex === idx
+                  ? "ring-2 ring-blue-600 ring-offset-2 dark:ring-offset-slate-900"
+                  : "opacity-70 hover:opacity-100 ring-1 ring-slate-200 dark:ring-slate-700"
+              }`}
+            >
+              <img
+                src={img}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -280,13 +412,7 @@ export function BoardingDetails({ user }) {
             {house.area}, {house.city}
           </p>
 
-          {house.imageUrl && (
-            <img
-              src={house.imageUrl}
-              alt={house.title}
-              className="max-h-96 w-full rounded-xl object-cover ring-1 ring-slate-200 dark:ring-slate-800"
-            />
-          )}
+          <PropertyGallery key={house._id} house={house} />
 
           <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
             <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
@@ -367,6 +493,13 @@ export function OwnerHouses() {
   }
 
   function editHouse(house) {
+    const urls =
+      Array.isArray(house.imageUrls) && house.imageUrls.length > 0
+        ? house.imageUrls
+        : house.imageUrl
+          ? [house.imageUrl]
+          : [];
+
     setEditingId(house._id);
     setForm({
       title: house.title,
@@ -376,6 +509,7 @@ export function OwnerHouses() {
       monthlyRentLkr: String(house.monthlyRentLkr),
       facilities: house.facilities.join(", "),
       imageUrl: house.imageUrl || "",
+      imageUrls: urls.join("\n"),
       availability: house.availability,
     });
     setError("");
@@ -395,6 +529,12 @@ export function OwnerHouses() {
     setError("");
     setMessage("");
 
+    const rawUrls = form.imageUrls || form.imageUrl || "";
+    const parsedUrls = rawUrls
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
     const body = {
       ...form,
       monthlyRentLkr: Number(form.monthlyRentLkr),
@@ -402,7 +542,8 @@ export function OwnerHouses() {
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean),
-      imageUrl: form.imageUrl.trim(),
+      imageUrls: parsedUrls.slice(0, 5),
+      imageUrl: parsedUrls[0] || "",
     };
 
     try {
@@ -583,19 +724,22 @@ export function OwnerHouses() {
 
         <div>
           <label
-            htmlFor="house-image"
+            htmlFor="house-images"
             className="block text-sm font-medium text-slate-700 dark:text-slate-300"
           >
-            Property image URL (optional, HTTPS)
+            Property image URLs (optional, up to 5 HTTPS or safe local paths, one per line)
           </label>
-          <input
-            id="house-image"
+          <textarea
+            id="house-images"
             className={inputClass}
-            type="url"
-            placeholder="HTTPS image URL (optional)"
-            value={form.imageUrl}
-            onChange={(e) => update("imageUrl", e.target.value)}
+            rows={3}
+            placeholder={"/demo/houses/house-01-exterior.svg\n/demo/houses/house-01-bedroom.svg\n/demo/houses/house-01-shared.svg"}
+            value={form.imageUrls}
+            onChange={(e) => update("imageUrls", e.target.value)}
           />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Enter up to 5 URLs separated by line breaks or commas. The first image will be used as the primary cover photo.
+          </p>
         </div>
 
         <div>

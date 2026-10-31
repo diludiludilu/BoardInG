@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <title>Wijerama Campus Lodge - Student Bedroom</title>
+  <desc>Modern urban student room with workstation, management revision materials, laptop, wardrobe, and ceiling fan.</desc>
+  <defs>
+    <linearGradient id="wallGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f5f3ff" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="350" fill="url(#wallGrad)" />
+  <rect y="350" width="800" height="150" fill="#94a3b8" />
+
+  <rect x="280" y="50" width="240" height="160" fill="#bae6fd" stroke="#475569" stroke-width="3" rx="2" />
+  <line x1="400" y1="50" x2="400" y2="210" stroke="#475569" stroke-width="2.5" />
+  <line x1="280" y1="130" x2="520" y2="130" stroke="#475569" stroke-width="2.5" />
+
+  <rect x="40" y="270" width="220" height="150" fill="#f8fafc" stroke="#64748b" stroke-width="2" rx="4" />
+  <rect x="45" y="275" width="210" height="140" fill="#1e1b4b" rx="3" />
+  <rect x="60" y="285" width="80" height="40" fill="#ffffff" rx="8" stroke="#cbd5e1" stroke-width="1.5" />
+
+  <rect x="520" y="240" width="240" height="170" fill="#9a3412" stroke="#431407" stroke-width="2" rx="2" />
+  <circle cx="702" cy="300" r="4" fill="#fbbf24" />
+
+  <rect x="24" y="24" width="420" height="68" rx="8" fill="#0f172a" fill-opacity="0.88" />
+  <text x="40" y="52" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700">Wijerama Campus Lodge</text>
+  <text x="40" y="74" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="13">Wijerama, Nugegoda • Student Bedroom</text>
+</svg>

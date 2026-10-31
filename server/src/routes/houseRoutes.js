@@ -1,4 +1,3 @@
-
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -58,7 +57,7 @@ function requireCsrf(req, res, next) {
   next();
 }
 
-// Accept only editable property fields.
+// Accept only editable property fields with robust image synchronization.
 function cleanHouseInput(body) {
   const allowed = [
     "title",
@@ -68,6 +67,7 @@ function cleanHouseInput(body) {
     "monthlyRentLkr",
     "facilities",
     "imageUrl",
+    "imageUrls",
     "availability",
   ];
 
@@ -77,6 +77,14 @@ function cleanHouseInput(body) {
     if (Object.hasOwn(body, field)) {
       clean[field] = body[field];
     }
+  }
+
+  if (Object.hasOwn(clean, "imageUrls")) {
+    if (Array.isArray(clean.imageUrls)) {
+      clean.imageUrl = clean.imageUrls.length > 0 ? clean.imageUrls[0] : "";
+    }
+  } else if (Object.hasOwn(clean, "imageUrl")) {
+    clean.imageUrls = clean.imageUrl ? [clean.imageUrl] : [];
   }
 
   return clean;
