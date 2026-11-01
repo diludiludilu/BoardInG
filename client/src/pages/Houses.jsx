@@ -20,20 +20,22 @@ function HouseCard({ house }) {
     Array.isArray(house.imageUrls) && house.imageUrls.length > 0
       ? house.imageUrls[0]
       : house.imageUrl;
+  const [loadError, setLoadError] = useState(false);
 
   return (
     <Link
       to={`/houses/${house._id}`}
       className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:bg-slate-900 dark:ring-slate-800"
     >
-      {displayImage ? (
+      {displayImage && !loadError ? (
         <img
           src={displayImage}
           alt={house.title}
           className="h-44 w-full object-cover"
+          onError={() => setLoadError(true)}
         />
       ) : (
-        <div className="flex h-44 items-center justify-center bg-blue-100 text-blue-700 dark:bg-slate-800 dark:text-blue-300">
+        <div className="flex h-44 items-center justify-center bg-blue-100 font-medium text-blue-700 dark:bg-slate-800 dark:text-blue-300">
           BoardInG Accommodation
         </div>
       )}
@@ -69,7 +71,14 @@ function PropertyGallery({ house }) {
   const [loadError, setLoadError] = useState(false);
 
   if (images.length === 0) {
-    return null;
+    return (
+      <div className="flex h-72 w-full flex-col items-center justify-center gap-2 rounded-xl bg-slate-100 text-slate-500 ring-1 ring-slate-200 sm:h-96 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-800">
+        <svg className="size-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <p className="text-sm font-medium">No photos available for this property</p>
+      </div>
+    );
   }
 
   const currentImage = images[activeIndex] || images[0];
@@ -466,6 +475,25 @@ export function BoardingDetails({ user }) {
 }
 
 // Owner property management
+function HouseThumbnail({ src, alt }) {
+  const [error, setError] = useState(false);
+  if (!src || error) {
+    return (
+      <div className="flex h-28 w-full sm:w-36 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-xs font-semibold text-blue-700 dark:bg-slate-800 dark:text-blue-300 ring-1 ring-slate-200 dark:ring-slate-800">
+        BoardInG
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-28 w-full sm:w-36 shrink-0 rounded-lg object-cover"
+      onError={() => setError(true)}
+    />
+  );
+}
+
 export function OwnerHouses() {
   const [houses, setHouses] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -816,55 +844,64 @@ export function OwnerHouses() {
           </p>
         ) : (
           <div className="space-y-3">
-            {houses.map((house) => (
-              <div
-                key={house._id}
-                className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
-              >
-                <h3 className="font-semibold text-slate-900 dark:text-slate-100">{house.title}</h3>
+            {houses.map((house) => {
+              const displayImage =
+                Array.isArray(house.imageUrls) && house.imageUrls.length > 0
+                  ? house.imageUrls[0]
+                  : house.imageUrl;
+              return (
+                <div
+                  key={house._id}
+                  className="flex flex-col sm:flex-row gap-5 rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+                >
+                  <HouseThumbnail src={displayImage} alt={house.title} />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">{house.title}</h3>
 
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  {house.city} — LKR{" "}
-                  {house.monthlyRentLkr.toLocaleString()}
-                </p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {house.city} — LKR{" "}
+                      {house.monthlyRentLkr.toLocaleString()}
+                    </p>
 
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                  {house.status} / {house.availability}
-                </p>
+                    <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+                      {house.status} / {house.availability}
+                    </p>
 
-                {house.status === "ACTIVE" && (
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400 dark:hover:bg-slate-700"
-                      onClick={() => editHouse(house)}
-                    >
-                      <PencilIcon className="size-4" />
-                      <span>Edit</span>
-                    </button>
+                    {house.status === "ACTIVE" && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400 dark:hover:bg-slate-700"
+                          onClick={() => editHouse(house)}
+                        >
+                          <PencilIcon className="size-4" />
+                          <span>Edit</span>
+                        </button>
 
-                    <button
-                      type="button"
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-950/40"
-                      onClick={() =>
-                        archiveHouse(house._id)
-                      }
-                    >
-                      <ArchiveIcon className="size-4" />
-                      <span>Archive</span>
-                    </button>
+                        <button
+                          type="button"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-950/40"
+                          onClick={() =>
+                            archiveHouse(house._id)
+                          }
+                        >
+                          <ArchiveIcon className="size-4" />
+                          <span>Archive</span>
+                        </button>
 
-                    <Link
-                      to={`/houses/${house._id}`}
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                      <span>View Listing</span>
-                    </Link>
+                        <Link
+                          to={`/houses/${house._id}`}
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          <ExternalLinkIcon className="size-4" />
+                          <span>View Listing</span>
+                        </Link>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
