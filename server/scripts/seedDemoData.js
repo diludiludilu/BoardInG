@@ -21,45 +21,131 @@ const EXPECTED_BACKUP_PATH =
 const EXPECTED_BACKUP_SHA256 =
   "F7B98F3B0A39916D512927BAD33A3D1E9A7823A08D1A20C1024AA315DDA485E1";
 
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "DemoStudent@2026";
-const DEMO_SEED_KEY = "demo_dataset_phase_b2";
+const FIXTURE_VERSION = "phase-c1-sri-lanka-87";
+
+// Deterministic ObjectId map
+const idMap = new Map();
+function getObjectId(key) {
+  if (!idMap.has(key)) {
+    const hash = crypto
+      .createHash("sha256")
+      .update(`boarding:demo:seed:v1:${key}`)
+      .digest("hex")
+      .slice(0, 24);
+    idMap.set(key, new mongoose.Types.ObjectId(hash));
+  }
+  return idMap.get(key);
+}
+
+function getDemoPassword(isApply, overridePassword) {
+  const pwd =
+    overridePassword !== undefined ? overridePassword : process.env.DEMO_PASSWORD;
+  if (isApply) {
+    if (!pwd || typeof pwd !== "string" || pwd.trim().length === 0) {
+      throw new Error(
+        "Apply rejected: DEMO_PASSWORD environment variable is required and must not be empty!"
+      );
+    }
+    return pwd;
+  }
+  return pwd || "dry_run_validation_only";
+}
 
 // 1. Safety verification functions
-function verifyBackupFile() {
-  if (!fs.existsSync(EXPECTED_BACKUP_PATH)) {
+function verifyBackupFile(
+  backupPath = EXPECTED_BACKUP_PATH,
+  expectedHash = EXPECTED_BACKUP_SHA256
+) {
+  if (!fs.existsSync(backupPath)) {
     throw new Error(
-      `Backup file not found at expected path: ${EXPECTED_BACKUP_PATH}`
+      `Backup file not found at expected path: ${backupPath}`
     );
   }
 
-  const fileBuffer = fs.readFileSync(EXPECTED_BACKUP_PATH);
+  const fileBuffer = fs.readFileSync(backupPath);
   const hash = crypto
     .createHash("sha256")
     .update(fileBuffer)
     .digest("hex")
     .toUpperCase();
 
-  if (hash !== EXPECTED_BACKUP_SHA256) {
+  if (hash.toUpperCase() !== String(expectedHash).toUpperCase()) {
     throw new Error(
-      `Backup SHA-256 mismatch!\nExpected: ${EXPECTED_BACKUP_SHA256}\nActual:   ${hash}`
+      `Backup SHA-256 mismatch!\nExpected: ${expectedHash}\nActual:   ${hash}`
     );
   }
 
-  return { path: EXPECTED_BACKUP_PATH, size: fileBuffer.length, hash };
+  return { path: backupPath, size: fileBuffer.length, hash };
 }
 
-function verifyDatabaseTarget(connection) {
+function verifyDatabaseTarget(connection, options = {}) {
   const host = connection.host;
   const dbName = connection.name;
 
   const isLocal =
     host === "127.0.0.1" || host === "localhost" || host === "::1";
 
-  if (!isLocal || dbName !== "boarding_db") {
+  const expectedDb = options.expectedDb || "boarding_db";
+  if (!isLocal || dbName !== expectedDb) {
     throw new Error(
-      `Safety guard blocked connection: target must be local boarding_db (found host="${host}", db="${dbName}")`
+      `Safety guard blocked connection: target must be local ${expectedDb} (found host="${host}", db="${dbName}")`
     );
   }
+}
+
+function verifyMongoUri(rawUri, options = {}) {
+  if (!rawUri || typeof rawUri !== "string" || rawUri.trim().length === 0) {
+    throw new Error(
+      "Apply rejected: MONGO_URI environment variable is required and must be explicitly configured!"
+    );
+  }
+
+  let parsed;
+  try {
+    const normalized = rawUri.replace(/^mongodb(?:\+srv)?:\/\//i, "http://");
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(
+      "Safety guard blocked connection: MONGO_URI is not a valid MongoDB connection string."
+    );
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocal =
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]";
+
+  if (!isLocal) {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI target must be local (127.0.0.1, localhost, or ::1). Found host: "${hostname}".`
+    );
+  }
+
+  const port = parsed.port || "27017";
+  if (port !== "27017") {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI port must be 27017. Found port: "${port}".`
+    );
+  }
+
+  const expectedDb = options.expectedDb || "boarding_db";
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  const dbName = pathParts[0] ? pathParts[0].split("?")[0] : "";
+
+  if (dbName !== expectedDb) {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI target database must be "${expectedDb}". Found db: "${dbName || "none"}".`
+    );
+  }
+
+  return {
+    hostname,
+    port: parseInt(port, 10),
+    dbName,
+    sanitized: `mongodb://${hostname}:${port}/${dbName}`,
+  };
 }
 
 // 2. Geographically Diverse Sri Lankan University Fixture Definitions
@@ -773,10 +859,21 @@ const seedManifestSchema = new mongoose.Schema(
   {
     manifestVersion: { type: String, required: true },
     fixtureVersion: { type: String, required: true },
-    appliedAt: { type: Date, required: true },
-    seededBy: { type: String, required: true },
     checksum: { type: String, required: true },
-    documents: {
+    state: { type: String, enum: ["IN_PROGRESS", "COMPLETED"], required: true },
+    seededBy: { type: String, required: true },
+    startedAt: { type: Date, required: true },
+    completedAt: { type: Date, default: null },
+    recordCounts: {
+      users: Number,
+      boardinghouses: Number,
+      accommodationrequests: Number,
+      memberships: Number,
+      communityposts: Number,
+      maintenanceissues: Number,
+      total: Number,
+    },
+    insertedIds: {
       users: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       boardinghouses: [
         { type: mongoose.Schema.Types.ObjectId, ref: "BoardingHouse" },
@@ -794,15 +891,6 @@ const seedManifestSchema = new mongoose.Schema(
         { type: mongoose.Schema.Types.ObjectId, ref: "MaintenanceIssue" },
       ],
     },
-    recordCounts: {
-      users: Number,
-      boardinghouses: Number,
-      accommodationrequests: Number,
-      memberships: Number,
-      communityposts: Number,
-      maintenanceissues: Number,
-      total: Number,
-    },
   },
   {
     timestamps: true,
@@ -812,179 +900,126 @@ const seedManifestSchema = new mongoose.Schema(
   }
 );
 
-async function run() {
-  const isApply = process.argv.includes("--apply");
+function computeFixtureChecksum() {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        owners: ownersData,
+        students: studentsData,
+        houses: housesData,
+        requests: requestsData,
+        memberships: membershipsData,
+        posts: communityPostsData,
+        issues: maintenanceIssuesData,
+      })
+    )
+    .digest("hex");
+}
 
-  console.log("===============================================================");
-  console.log(" BoardInG Demo Data Seeder — Non-Destructive Preparation");
-  console.log("===============================================================");
-  console.log(
-    `Execution Mode: ${isApply ? "APPLY (DATABASE WRITE)" : "DRY-RUN (READ-ONLY INSPECTION)"}`
-  );
+async function validateFixtures(options = {}) {
+  const demoPassword = options.demoPassword || "validation_placeholder_password";
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
+  const publicDir =
+    options.publicDir || path.resolve(__dirname, "../../client/public");
 
-  if (isApply) {
-    console.error(
-      "\n[SAFETY GUARD]: Apply mode is strictly not authorized!"
-    );
-    console.error("Please run with --dry-run.");
-    process.exit(1);
-  }
+  const ownersList = options.owners || options.ownersOverride || ownersData;
+  const studentsList = options.students || options.studentsOverride || studentsData;
+  const housesList = options.houses || options.housesOverride || housesData;
+  const requestsList = options.requests || options.requestsOverride || requestsData;
+  const membershipsList = options.memberships || options.membershipsOverride || membershipsData;
+  const postsList =
+    options.posts ||
+    options.communityPostsOverride ||
+    options.postsOverride ||
+    communityPostsData;
+  const issuesList =
+    options.issues ||
+    options.maintenanceIssuesOverride ||
+    options.issuesOverride ||
+    maintenanceIssuesData;
 
-  // Step 1: Backup verification
-  console.log("\n[1/6] Verifying Phase A Database Backup...");
-  const backupInfo = verifyBackupFile();
-  console.log(`  ✓ Backup File: ${backupInfo.path}`);
-  console.log(`  ✓ Backup Size: ${backupInfo.size.toLocaleString()} bytes`);
-  console.log(`  ✓ Backup Hash: ${backupInfo.hash} (SHA-256 MATCH)`);
-
-  // Step 2: Database Connection & Target Guard
-  console.log("\n[2/6] Connecting to MongoDB and Verifying Target...");
-  const mongoUri =
-    process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/boarding_db";
-  await mongoose.connect(mongoUri, { autoIndex: false, autoCreate: false });
-  verifyDatabaseTarget(mongoose.connection);
-  console.log(
-    `  ✓ Connected to: ${mongoose.connection.host}:${mongoose.connection.port}/${mongoose.connection.name}`
-  );
-  console.log("  ✓ Safety target check passed: strictly local boarding_db.");
-
-  // Step 3: Real Database Inventory Check
-  console.log("\n[3/6] Inspecting Real Database Collection Inventory...");
-  const rawCollections = await mongoose.connection.db
-    .listCollections()
-    .toArray();
-  const collectionNames = rawCollections.map((c) => c.name);
-  console.log(`  ✓ Collections present (${collectionNames.length}): ${JSON.stringify(collectionNames)}`);
-
-  const inventory = {};
-  for (const name of collectionNames) {
-    inventory[name] = await mongoose.connection.db
-      .collection(name)
-      .countDocuments();
-  }
-  console.log("  ✓ Real Collection Baseline Counts:");
-  console.log(`      • users:                  ${inventory.users ?? 0} (Baseline: 4)`);
-  console.log(`      • boardinghouses:         ${inventory.boardinghouses ?? 0} (Baseline: 1)`);
-  console.log(`      • accommodationrequests:  ${inventory.accommodationrequests ?? 0} (Baseline: 2)`);
-  console.log(`      • memberships:            ${inventory.memberships ?? 0} (Baseline: 2)`);
-  console.log(`      • communityposts:         ${inventory.communityposts ?? 0} (Baseline: 2)`);
-  console.log(`      • maintenanceissues:      ${inventory.maintenanceissues ?? 0} (Baseline: 1)`);
-  console.log(`      • sessions:               ${inventory.sessions ?? 0} (Baseline: 3)`);
-
-  const expectedBaseline = {
-    users: 4,
-    boardinghouses: 1,
-    accommodationrequests: 2,
-    memberships: 2,
-    communityposts: 2,
-    maintenanceissues: 1,
-    sessions: 3,
+  const ownerDates = {
+    "owner-1": new Date("2026-05-01T08:00:00.000Z"),
+    "owner-2": new Date("2026-05-01T08:30:00.000Z"),
+    "owner-3": new Date("2026-05-02T09:00:00.000Z"),
+    "owner-4": new Date("2026-05-02T09:30:00.000Z"),
   };
 
-  for (const [col, exp] of Object.entries(expectedBaseline)) {
-    if (inventory[col] !== exp) {
-      throw new Error(
-        `Database count discrepancy in "${col}": expected ${exp}, found ${inventory[col]}`
-      );
-    }
-  }
-  console.log("  ✓ All collection counts match Phase A baseline perfectly (12 application records + 3 sessions = 15 total).");
-
-  // Step 4: Collision Detection & Manifest Verification
-  console.log("\n[4/6] Checking for Collisions with Existing Database Records & Verifying Manifest...");
-  if (collectionNames.includes("_seed_manifest")) {
-    const manifest = await mongoose.connection.db
-      .collection("_seed_manifest")
-      .findOne();
-    if (manifest) {
-      console.log(`  ✓ Found existing seed manifest (Fixture Version: ${manifest.fixtureVersion})`);
-    } else {
-      console.log("  ✓ Manifest collection exists but is empty.");
-    }
-  } else {
-    console.log("  ✓ No prior seed manifest detected. Clean initial state.");
-  }
-
-  const allDemoEmails = [
-    ...ownersData.map((o) => o.email),
-    ...studentsData.map((s) => s.email),
-  ];
-  const existingUsers = await User.find({ email: { $in: allDemoEmails } }).lean();
-
-  const allDemoHouseTitles = housesData.map((h) => h.title);
-  const existingHouses = await BoardingHouse.find({
-    title: { $in: allDemoHouseTitles },
-  }).lean();
-
-  if (existingUsers.length > 0) {
-    console.error(`\n[COLLISION ERROR]: Found ${existingUsers.length} conflicting user email(s):`);
-    for (const u of existingUsers) {
-      console.error(`  - ID: ${u._id}, Email: ${u.email}, Role: ${u.role}`);
-    }
-    await mongoose.disconnect();
-    process.exit(1);
-  }
-
-  if (existingHouses.length > 0) {
-    console.error(`\n[COLLISION ERROR]: Found ${existingHouses.length} conflicting house title(s):`);
-    for (const h of existingHouses) {
-      console.error(`  - ID: ${h._id}, Title: "${h.title}"`);
-    }
-    await mongoose.disconnect();
-    process.exit(1);
-  }
-  console.log("  ✓ Zero collisions detected with pre-existing database records.");
-
-  // Step 5: Validate schemas, authorizations, and referential integrity of planned fixtures
-  console.log("\n[5/6] Validating Fixture Schemas, Authorizations, and Referential Integrity...");
-
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
-
-  // Map fixture keys to deterministic dummy ObjectIds for validation
-  const idMap = new Map();
-  function getObjectId(key) {
-    if (!idMap.has(key)) {
-      idMap.set(key, new mongoose.Types.ObjectId());
-    }
-    return idMap.get(key);
-  }
-
-  // Validate Owners
-  for (const o of ownersData) {
+  const ownersDocs = [];
+  for (const o of ownersList) {
+    const createdAt = ownerDates[o.key] || new Date("2026-05-01T08:00:00.000Z");
     const doc = new User({
       _id: getObjectId(o.key),
       name: o.name,
       email: o.email,
       passwordHash,
       role: o.role,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
+    ownersDocs.push(doc);
   }
 
-  // Validate Students
-  for (const s of studentsData) {
+  const studentDates = {
+    "student-09": new Date("2026-05-08T09:00:00.000Z"),
+    "student-02": new Date("2026-08-10T09:00:00.000Z"),
+    "student-03": new Date("2026-08-10T09:30:00.000Z"),
+    "student-01": new Date("2026-08-25T10:00:00.000Z"),
+    "student-04": new Date("2026-08-26T10:00:00.000Z"),
+    "student-05": new Date("2026-08-26T11:00:00.000Z"),
+    "student-06": new Date("2026-08-27T10:00:00.000Z"),
+    "student-07": new Date("2026-08-27T11:00:00.000Z"),
+    "student-08": new Date("2026-08-28T10:00:00.000Z"),
+    "student-10": new Date("2026-08-29T10:00:00.000Z"),
+    "student-11": new Date("2026-08-29T11:00:00.000Z"),
+    "student-12": new Date("2026-09-01T09:00:00.000Z"),
+  };
+
+  const studentsDocs = [];
+  for (const s of studentsList) {
+    const createdAt = studentDates[s.key] || new Date("2026-08-25T10:00:00.000Z");
     const doc = new User({
       _id: getObjectId(s.key),
       name: s.name,
       email: s.email,
       passwordHash,
       role: s.role,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
+    studentsDocs.push(doc);
   }
 
-  // Validate Houses & verify local assets
-  const publicDir = path.resolve(__dirname, "../../client/public");
-  for (const h of housesData) {
-    for (const imgUrl of h.imageUrls) {
-      if (imgUrl.startsWith("/")) {
-        const diskPath = path.join(publicDir, imgUrl);
-        if (!fs.existsSync(diskPath)) {
-          throw new Error(`Referenced image asset does not exist on disk: ${diskPath}`);
+  const houseDates = {
+    "house-1": new Date("2026-05-03T10:00:00.000Z"),
+    "house-2": new Date("2026-05-03T11:00:00.000Z"),
+    "house-3": new Date("2026-05-04T10:00:00.000Z"),
+    "house-4": new Date("2026-05-04T11:00:00.000Z"),
+    "house-5": new Date("2026-05-05T10:00:00.000Z"),
+    "house-6": new Date("2026-05-05T11:00:00.000Z"),
+    "house-7": new Date("2026-05-06T10:00:00.000Z"),
+    "house-8": new Date("2026-05-06T11:00:00.000Z"),
+  };
+
+  const housesDocs = [];
+  for (const h of housesList) {
+    if (!options.skipAssetCheck) {
+      for (const imgUrl of h.imageUrls) {
+        if (imgUrl.startsWith("/")) {
+          const diskPath = path.join(publicDir, imgUrl);
+          if (!fs.existsSync(diskPath)) {
+            throw new Error(
+              `Referenced image asset does not exist on disk: ${diskPath}`
+            );
+          }
         }
       }
     }
 
+    const createdAt = houseDates[h.key] || new Date("2026-05-03T10:00:00.000Z");
     const doc = new BoardingHouse({
       _id: getObjectId(h.key),
       ownerId: getObjectId(h.ownerKey),
@@ -998,58 +1033,91 @@ async function run() {
       imageUrl: h.imageUrls[0],
       availability: h.availability,
       status: h.status,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
+    housesDocs.push(doc);
   }
 
-  // Validate Accommodation Requests & check uniqueness
   const requestPairs = new Set();
-  for (const r of requestsData) {
+  const requestsDocs = [];
+  for (const r of requestsList) {
     const pair = `${r.studentKey}_${r.houseKey}`;
     if (requestPairs.has(pair)) {
-      throw new Error(`Duplicate request constraint violation: ${pair}`);
+      throw new Error(
+        `DUPLICATE REQUEST FIXTURE: ${pair} - ${r.studentKey} already has request for ${r.houseKey}`
+      );
     }
     requestPairs.add(pair);
 
+    let createdAt, updatedAt;
+    if (r.reviewedAt) {
+      createdAt = new Date(new Date(r.reviewedAt).getTime() - 24 * 60 * 60 * 1000);
+      updatedAt = new Date(r.reviewedAt);
+    } else if (r.status === "PENDING") {
+      const offsetDays = requestsDocs.length % 5;
+      createdAt = new Date(`2026-09-${String(4 + offsetDays).padStart(2, "0")}T14:00:00.000Z`);
+      updatedAt = createdAt;
+    } else {
+      createdAt = new Date("2026-09-02T10:00:00.000Z");
+      updatedAt = new Date("2026-09-03T16:00:00.000Z");
+    }
+
     const doc = new AccommodationRequest({
+      _id: getObjectId(`req:${r.studentKey}:${r.houseKey}`),
       studentId: getObjectId(r.studentKey),
       boardingHouseId: getObjectId(r.houseKey),
       message: r.message,
       status: r.status,
       reviewedAt: r.reviewedAt || null,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
+    requestsDocs.push(doc);
   }
 
-  // Validate Memberships & check uniqueness
   const membershipPairs = new Set();
   const activeMemberships = new Set();
-  for (const m of membershipsData) {
+  const membershipsDocs = [];
+  for (const m of membershipsList) {
     const pair = `${m.studentKey}_${m.houseKey}`;
     if (membershipPairs.has(pair)) {
-      throw new Error(`Duplicate membership constraint violation: ${pair}`);
+      throw new Error(
+        `DUPLICATE MEMBERSHIP FIXTURE: ${pair} - ${m.studentKey} already member of ${m.houseKey}`
+      );
     }
     membershipPairs.add(pair);
     if (m.status === "ACTIVE") {
       activeMemberships.add(pair);
     }
 
+    const joinedDate = m.joinedAt ? new Date(m.joinedAt) : new Date("2026-09-01T10:00:00.000Z");
+    const createdAt = joinedDate;
+    const updatedAt = m.revokedAt ? new Date(m.revokedAt) : joinedDate;
+
     const doc = new Membership({
+      _id: getObjectId(`mem:${m.studentKey}:${m.houseKey}`),
       studentId: getObjectId(m.studentKey),
       boardingHouseId: getObjectId(m.houseKey),
       status: m.status,
-      joinedAt: m.joinedAt,
+      joinedAt: joinedDate,
       revokedAt: m.revokedAt || null,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
+    membershipsDocs.push(doc);
   }
 
-  // Validate Community Posts & verify author role constraints
-  const houseMap = new Map(housesData.map((h) => [h.key, h]));
+  const houseMap = new Map(housesList.map((h) => [h.key, h]));
   let announcementCount = 0;
   let postCount = 0;
+  const postsDocs = [];
 
-  for (const p of communityPostsData) {
+  for (let idx = 0; idx < postsList.length; idx++) {
+    const p = postsList[idx];
     const house = houseMap.get(p.houseKey);
     if (!house) {
       throw new Error(`Community post references unknown house: ${p.houseKey}`);
@@ -1058,7 +1126,7 @@ async function run() {
     if (p.type === "ANNOUNCEMENT") {
       if (house.ownerKey !== p.authorKey) {
         throw new Error(
-          `Announcement authorization failure: ${p.authorKey} does not own ${p.houseKey}`
+          `Owner announcement authorization failure: ${p.authorKey} does not own ${p.houseKey}`
         );
       }
       announcementCount++;
@@ -1072,17 +1140,25 @@ async function run() {
       postCount++;
     }
 
+    const basePostTime = new Date("2026-09-02T08:00:00.000Z").getTime();
+    const postTime = new Date(basePostTime + idx * 26 * 3600 * 1000);
+
     const doc = new CommunityPost({
+      _id: getObjectId(`post:${idx + 1}:${p.houseKey}:${p.authorKey}`),
       boardingHouseId: getObjectId(p.houseKey),
       authorId: getObjectId(p.authorKey),
       type: p.type,
       content: p.content,
+      createdAt: postTime,
+      updatedAt: postTime,
     });
     await doc.validate();
+    postsDocs.push(doc);
   }
 
-  // Validate Maintenance Issues & verify resident authorization
-  for (const i of maintenanceIssuesData) {
+  const issuesDocs = [];
+  for (let idx = 0; idx < issuesList.length; idx++) {
+    const i = issuesList[idx];
     const membershipKey = `${i.studentKey}_${i.houseKey}`;
     if (!activeMemberships.has(membershipKey)) {
       throw new Error(
@@ -1090,56 +1166,707 @@ async function run() {
       );
     }
 
+    const baseIssueTime = new Date("2026-09-05T09:00:00.000Z").getTime();
+    const createdAt = new Date(baseIssueTime + idx * 36 * 3600 * 1000);
+    let updatedAt = createdAt;
+    if (i.status === "RESOLVED") {
+      updatedAt = new Date(createdAt.getTime() + 48 * 3600 * 1000);
+    } else if (i.status === "IN_PROGRESS") {
+      updatedAt = new Date(createdAt.getTime() + 24 * 3600 * 1000);
+    }
+
     const doc = new MaintenanceIssue({
+      _id: getObjectId(`issue:${idx + 1}:${i.houseKey}:${i.studentKey}`),
       boardingHouseId: getObjectId(i.houseKey),
       studentId: getObjectId(i.studentKey),
       title: i.title,
       description: i.description,
       status: i.status,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
+    issuesDocs.push(doc);
   }
 
-  const totalPlanned =
-    ownersData.length +
-    studentsData.length +
-    housesData.length +
-    requestsData.length +
-    membershipsData.length +
-    communityPostsData.length +
-    maintenanceIssuesData.length;
+  const total =
+    ownersDocs.length +
+    studentsDocs.length +
+    housesDocs.length +
+    requestsDocs.length +
+    membershipsDocs.length +
+    postsDocs.length +
+    issuesDocs.length;
 
-  console.log(`  ✓ All ${totalPlanned} planned documents passed Mongoose schema validation.`);
-  console.log(`  ✓ Announcement authors verified: all ${announcementCount} announcements authored by house owners.`);
-  console.log(`  ✓ Post authors verified: all ${postCount} posts authored by active residents.`);
-  console.log(`  ✓ Maintenance ticket authors verified: all ${maintenanceIssuesData.length} issues authored by active residents.`);
-  console.log("  ✓ All 24 image asset paths verified to exist on local disk.");
-  console.log("  ✓ All foreign key references and compound unique indexes verified.");
-
-  // Step 6: Summary Reporting
-  console.log("\n[6/6] Seed Plan Summary (DRY-RUN Execution):");
-  console.log("---------------------------------------------------------------");
-  console.log(`  • Owners:                    ${ownersData.length} documents`);
-  console.log(`  • Students:                  ${studentsData.length} documents`);
-  console.log(`  • Boarding Houses:           ${housesData.length} documents (24 multi-photo gallery URLs)`);
-  console.log(`  • Accommodation Requests:    ${requestsData.length} documents (11 APPROVED, 4 PENDING, 2 REJECTED)`);
-  console.log(`  • Memberships:               ${membershipsData.length} documents (10 ACTIVE, 1 REVOKED)`);
-  console.log(`  • Community Posts:           ${communityPostsData.length} documents (${announcementCount} ANNOUNCEMENTS, ${postCount} POSTS)`);
-  console.log(`  • Maintenance Issues:        ${maintenanceIssuesData.length} documents (5 OPEN, 4 IN_PROGRESS, 4 RESOLVED)`);
-  console.log("---------------------------------------------------------------");
-  console.log(`  • TOTAL PLANNED NEW:         ${totalPlanned} documents (Exact Match: 87)`);
-  console.log("  • WRITES EXECUTED:           0 (ZERO writes to database)");
-  console.log("===============================================================");
-  console.log(" Dry-run completed successfully! Database remains 100% untouched.");
-  console.log("===============================================================");
-
-  await mongoose.disconnect();
+  return {
+    total,
+    counts: {
+      owners: ownersDocs.length,
+      students: studentsDocs.length,
+      houses: housesDocs.length,
+      requests: requestsDocs.length,
+      memberships: membershipsDocs.length,
+      communityPosts: postsDocs.length,
+      maintenanceIssues: issuesDocs.length,
+    },
+    announcementCount,
+    postCount,
+    ownersDocs,
+    studentsDocs,
+    housesDocs,
+    requestsDocs,
+    membershipsDocs,
+    postsDocs,
+    issuesDocs,
+    allInsertedIds: {
+      users: [...ownersDocs, ...studentsDocs].map((d) => d._id),
+      boardinghouses: housesDocs.map((d) => d._id),
+      accommodationrequests: requestsDocs.map((d) => d._id),
+      memberships: membershipsDocs.map((d) => d._id),
+      communityposts: postsDocs.map((d) => d._id),
+      maintenanceissues: issuesDocs.map((d) => d._id),
+    },
+  };
 }
 
-run().catch(async (err) => {
-  console.error("\n[SEEDER ERROR]:", err.message);
+async function runSeeder(options = {}) {
+  const isApply =
+    options.isApply !== undefined
+      ? options.isApply
+      : process.argv.includes("--apply");
+  const confirmArg =
+    options.confirmArg !== undefined
+      ? options.confirmArg
+      : process.argv.includes("--confirm-apply");
+  const envConfirm =
+    options.envConfirm !== undefined
+      ? options.envConfirm
+      : process.env.CONFIRM_DEMO_SEED;
+  const demoPasswordRaw =
+    options.demoPassword !== undefined
+      ? options.demoPassword
+      : process.env.DEMO_PASSWORD;
+  const logger = options.logger || console;
+
+  logger.log("===============================================================");
+  logger.log(" BoardInG Demo Data Seeder — Non-Destructive Preparation (C1)");
+  logger.log("===============================================================");
+  logger.log(
+    `Execution Mode: ${isApply ? "APPLY (DATABASE WRITE)" : "DRY-RUN (READ-ONLY INSPECTION)"}`
+  );
+
+  // Validate apply flags upfront before any external resources are touched
+  if (isApply) {
+    if (!confirmArg) {
+      throw new Error(
+        "Apply rejected: Missing explicit confirmation argument '--confirm-apply'!"
+      );
+    }
+    if (envConfirm !== "yes" && envConfirm !== "true") {
+      throw new Error(
+        "Apply rejected: Missing separate environment confirmation flag CONFIRM_DEMO_SEED=yes!"
+      );
+    }
+    if (!demoPasswordRaw || typeof demoPasswordRaw !== "string" || demoPasswordRaw.trim().length === 0) {
+      throw new Error(
+        "Apply rejected: DEMO_PASSWORD environment variable must be provided!"
+      );
+    }
+  }
+
+  // Step 1: Backup verification
+  logger.log("\n[1/6] Verifying Phase A Database Backup...");
+  const backupInfo = verifyBackupFile(
+    options.backupPath || EXPECTED_BACKUP_PATH,
+    options.expectedBackupSha || EXPECTED_BACKUP_SHA256
+  );
+  logger.log(`  ✓ Backup File: ${backupInfo.path}`);
+  logger.log(`  ✓ Backup Size: ${backupInfo.size.toLocaleString()} bytes`);
+  logger.log(`  ✓ Backup Hash: ${backupInfo.hash} (SHA-256 MATCH)`);
+
+  // Step 2: Database Connection & Target Guard
+  logger.log("\n[2/6] Connecting to MongoDB and Verifying Target...");
+  let connection = options.connection;
+  let didConnect = false;
+
+  const expectedDb = options.expectedDb || "boarding_db";
+
+  if (isApply) {
+    const rawMongoUri =
+      options.mongoUri !== undefined
+        ? options.mongoUri
+        : process.env.MONGO_URI;
+
+    if (!rawMongoUri || typeof rawMongoUri !== "string" || rawMongoUri.trim().length === 0) {
+      throw new Error(
+        "Apply rejected: MONGO_URI environment variable is required and must be explicitly configured!"
+      );
+    }
+
+    const uriInfo = verifyMongoUri(rawMongoUri, { expectedDb });
+    logger.log(`  ✓ Verified MONGO_URI target: ${uriInfo.sanitized}`);
+
+    if (!connection) {
+      await mongoose.connect(rawMongoUri, { autoIndex: false, autoCreate: false });
+      connection = mongoose.connection;
+      didConnect = true;
+    }
+  } else {
+    const mongoUri =
+      options.mongoUri ||
+      process.env.MONGO_URI ||
+      process.env.MONGODB_URI ||
+      "mongodb://127.0.0.1:27017/boarding_db";
+
+    if (!connection) {
+      await mongoose.connect(mongoUri, { autoIndex: false, autoCreate: false });
+      connection = mongoose.connection;
+      didConnect = true;
+    }
+  }
+
   try {
-    await mongoose.disconnect();
-  } catch {}
-  process.exit(1);
-});
+    verifyDatabaseTarget(connection, {
+      expectedDb,
+    });
+    logger.log(
+      `  ✓ Connected to: ${connection.host}:${connection.port}/${connection.name}`
+    );
+    logger.log(
+      `  ✓ Safety target check passed: strictly local ${options.expectedDb || "boarding_db"}.`
+    );
+
+    const db = options.dbOverride || connection.db;
+
+    // Step 3: Real Database Inventory Check
+    logger.log("\n[3/6] Inspecting Real Database Collection Inventory...");
+    let collectionNames = [];
+    if (typeof db.listCollections === "function") {
+      const rawCollections = await db.listCollections().toArray();
+      collectionNames = rawCollections.map((c) => c.name);
+    } else if (typeof db.getCollectionNames === "function") {
+      collectionNames = await db.getCollectionNames();
+    }
+    logger.log(
+      `  ✓ Collections present (${collectionNames.length}): ${JSON.stringify(collectionNames)}`
+    );
+
+    const inventory = {};
+    for (const name of collectionNames) {
+      inventory[name] = await db.collection(name).countDocuments();
+    }
+    logger.log("  ✓ Real Collection Baseline Counts:");
+    logger.log(`      • users:                  ${inventory.users ?? 0} (Baseline: 4)`);
+    logger.log(`      • boardinghouses:         ${inventory.boardinghouses ?? 0} (Baseline: 1)`);
+    logger.log(`      • accommodationrequests:  ${inventory.accommodationrequests ?? 0} (Baseline: 2)`);
+    logger.log(`      • memberships:            ${inventory.memberships ?? 0} (Baseline: 2)`);
+    logger.log(`      • communityposts:         ${inventory.communityposts ?? 0} (Baseline: 2)`);
+    logger.log(`      • maintenanceissues:      ${inventory.maintenanceissues ?? 0} (Baseline: 1)`);
+    logger.log(`      • sessions:               ${inventory.sessions ?? 0} (Dynamic)`);
+
+    // Step 4: Manifest & Collision Verification
+    logger.log(
+      "\n[4/6] Checking for Collisions with Existing Database Records & Verifying Manifest..."
+    );
+
+    let existingManifest = null;
+    if (collectionNames.includes("_seed_manifest")) {
+      existingManifest = await db.collection("_seed_manifest").findOne();
+    }
+
+    if (existingManifest) {
+      if (existingManifest.state === "COMPLETED") {
+        logger.log(
+          `  ✓ Found existing seed manifest (Fixture Version: ${existingManifest.fixtureVersion}, Completed: ${existingManifest.completedAt})`
+        );
+
+        // 1. Fixture version verification
+        if (existingManifest.fixtureVersion !== FIXTURE_VERSION) {
+          throw new Error(
+            `[MANIFEST ERROR]: Fixture version mismatch! Expected "${FIXTURE_VERSION}", but manifest recorded "${existingManifest.fixtureVersion}". Refusing to proceed.`
+          );
+        }
+
+        // 2. Checksum verification
+        const expectedChecksum = computeFixtureChecksum();
+        if (existingManifest.checksum !== expectedChecksum) {
+          throw new Error(
+            `[MANIFEST ERROR]: Checksum mismatch! Expected fixture checksum "${expectedChecksum}", but manifest recorded "${existingManifest.checksum}". Refusing to proceed.`
+          );
+        }
+
+        // 3. Expected 87 IDs & Per-collection counts in manifest
+        const expectedCounts = {
+          users: 16,
+          boardinghouses: 8,
+          accommodationrequests: 17,
+          memberships: 11,
+          communityposts: 22,
+          maintenanceissues: 13,
+        };
+
+        if (!existingManifest.recordCounts || existingManifest.recordCounts.total !== 87) {
+          throw new Error(
+            `[MANIFEST ERROR]: Total record count in manifest is invalid! Expected 87, found ${existingManifest.recordCounts?.total ?? 0}.`
+          );
+        }
+
+        for (const [col, count] of Object.entries(expectedCounts)) {
+          if (existingManifest.recordCounts[col] !== count) {
+            throw new Error(
+              `[MANIFEST ERROR]: Record count for "${col}" in manifest is invalid! Expected ${count}, found ${existingManifest.recordCounts[col]}.`
+            );
+          }
+        }
+
+        if (!existingManifest.insertedIds || typeof existingManifest.insertedIds !== "object") {
+          throw new Error(
+            "[MANIFEST ERROR]: Manifest insertedIds is missing or invalid! Refusing to proceed."
+          );
+        }
+
+        for (const [col, count] of Object.entries(expectedCounts)) {
+          const ids = existingManifest.insertedIds[col];
+          if (!Array.isArray(ids) || ids.length !== count) {
+            throw new Error(
+              `[MANIFEST ERROR]: Inserted IDs for "${col}" in manifest invalid! Expected ${count} IDs, found ${ids?.length ?? 0}.`
+            );
+          }
+        }
+
+        // 4. Stored document identities & important fields verification in database
+        // 4.1: Users
+        const userDocs = await db
+          .collection("users")
+          .find({ _id: { $in: existingManifest.insertedIds.users } })
+          .toArray();
+        if (userDocs.length !== 16) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 16 seeded users in database, but found ${userDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const userMap = new Map(userDocs.map((u) => [String(u._id), u]));
+        for (const o of ownersData) {
+          const doc = userMap.get(String(getObjectId(o.key)));
+          if (!doc || doc.email !== o.email || doc.role !== o.role || doc.name !== o.name) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user identity mismatch for owner ${o.key} (${o.email}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user ${o.key} is missing valid timestamps!`
+            );
+          }
+        }
+        for (const s of studentsData) {
+          const doc = userMap.get(String(getObjectId(s.key)));
+          if (!doc || doc.email !== s.email || doc.role !== s.role || doc.name !== s.name) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user identity mismatch for student ${s.key} (${s.email}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user ${s.key} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.2: Boarding Houses
+        const houseDocs = await db
+          .collection("boardinghouses")
+          .find({ _id: { $in: existingManifest.insertedIds.boardinghouses } })
+          .toArray();
+        if (houseDocs.length !== 8) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 8 seeded boarding houses in database, but found ${houseDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const houseMap = new Map(houseDocs.map((h) => [String(h._id), h]));
+        for (const h of housesData) {
+          const doc = houseMap.get(String(getObjectId(h.key)));
+          if (!doc || doc.title !== h.title || String(doc.ownerId) !== String(getObjectId(h.ownerKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored boarding house mismatch for ${h.key} ("${h.title}"). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored house ${h.key} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.3: Accommodation Requests
+        const reqDocs = await db
+          .collection("accommodationrequests")
+          .find({ _id: { $in: existingManifest.insertedIds.accommodationrequests } })
+          .toArray();
+        if (reqDocs.length !== 17) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 17 seeded accommodation requests in database, but found ${reqDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const reqMap = new Map(reqDocs.map((r) => [String(r._id), r]));
+        for (const r of requestsData) {
+          const expectedId = String(getObjectId(`req:${r.studentKey}:${r.houseKey}`));
+          const doc = reqMap.get(expectedId);
+          if (!doc || doc.status !== r.status || String(doc.studentId) !== String(getObjectId(r.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(r.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored accommodation request mismatch for ${r.studentKey} -> ${r.houseKey}. Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored request ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.4: Memberships
+        const memDocs = await db
+          .collection("memberships")
+          .find({ _id: { $in: existingManifest.insertedIds.memberships } })
+          .toArray();
+        if (memDocs.length !== 11) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 11 seeded memberships in database, but found ${memDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const memMap = new Map(memDocs.map((m) => [String(m._id), m]));
+        for (const m of membershipsData) {
+          const expectedId = String(getObjectId(`mem:${m.studentKey}:${m.houseKey}`));
+          const doc = memMap.get(expectedId);
+          if (!doc || doc.status !== m.status || String(doc.studentId) !== String(getObjectId(m.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(m.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored membership mismatch for ${m.studentKey} -> ${m.houseKey}. Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored membership ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.5: Community Posts
+        const postDocs = await db
+          .collection("communityposts")
+          .find({ _id: { $in: existingManifest.insertedIds.communityposts } })
+          .toArray();
+        if (postDocs.length !== 22) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 22 seeded community posts in database, but found ${postDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const postMap = new Map(postDocs.map((p) => [String(p._id), p]));
+        for (let idx = 0; idx < communityPostsData.length; idx++) {
+          const p = communityPostsData[idx];
+          const expectedId = String(getObjectId(`post:${idx + 1}:${p.houseKey}:${p.authorKey}`));
+          const doc = postMap.get(expectedId);
+          if (!doc || doc.type !== p.type || String(doc.authorId) !== String(getObjectId(p.authorKey)) || String(doc.boardingHouseId) !== String(getObjectId(p.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored community post mismatch for post ${idx + 1} (${p.houseKey}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored post ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.6: Maintenance Issues
+        const issueDocs = await db
+          .collection("maintenanceissues")
+          .find({ _id: { $in: existingManifest.insertedIds.maintenanceissues } })
+          .toArray();
+        if (issueDocs.length !== 13) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 13 seeded maintenance issues in database, but found ${issueDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const issueMap = new Map(issueDocs.map((i) => [String(i._id), i]));
+        for (let idx = 0; idx < maintenanceIssuesData.length; idx++) {
+          const i = maintenanceIssuesData[idx];
+          const expectedId = String(getObjectId(`issue:${idx + 1}:${i.houseKey}:${i.studentKey}`));
+          const doc = issueMap.get(expectedId);
+          if (!doc || doc.status !== i.status || String(doc.studentId) !== String(getObjectId(i.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(i.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored maintenance issue mismatch for issue ${idx + 1} (${i.houseKey}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored issue ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        logger.log(
+          "  ✓ Manifest fixture version, checksum, 87 IDs, per-collection counts, and stored document identities verified."
+        );
+        logger.log(
+          "  ✓ All 87 demonstration documents are present, unaltered, and verified in the database."
+        );
+        logger.log("  ✓ Status: COMPLETED. Zero writes executed.");
+        return {
+          status: "ALREADY_SEEDED",
+          writes: 0,
+          manifest: existingManifest,
+        };
+      } else if (existingManifest.state === "IN_PROGRESS") {
+        throw new Error(
+          `Incomplete seed state detected: A prior seed run began at ${existingManifest.startedAt} but was not completed! Halting execution to prevent data corruption. Manual review required. No records were deleted or modified.`
+        );
+      }
+    } else {
+      logger.log("  ✓ No prior seed manifest detected. Clean initial state.");
+    }
+
+    // Verify baseline counts on fresh seed
+    if (!options.skipBaselineCheck && !existingManifest) {
+      const expectedBaseline = {
+        users: 4,
+        boardinghouses: 1,
+        accommodationrequests: 2,
+        memberships: 2,
+        communityposts: 2,
+        maintenanceissues: 1,
+      };
+
+      for (const [col, exp] of Object.entries(expectedBaseline)) {
+        if (inventory[col] !== exp) {
+          throw new Error(
+            `Database count discrepancy in "${col}": expected ${exp}, found ${inventory[col] ?? 0}`
+          );
+        }
+      }
+      logger.log(
+        "  ✓ All 6 application collection counts match Phase A baseline (12 application records)."
+      );
+    }
+
+    // Collision check across emails, house titles, and deterministic ObjectIds
+    const allDemoEmails = [
+      ...ownersData.map((o) => o.email),
+      ...studentsData.map((s) => s.email),
+    ];
+    const existingConflictingUsers = await db
+      .collection("users")
+      .find({ email: { $in: allDemoEmails } })
+      .toArray();
+
+    const allDemoHouseTitles = housesData.map((h) => h.title);
+    const existingConflictingHouses = await db
+      .collection("boardinghouses")
+      .find({ title: { $in: allDemoHouseTitles } })
+      .toArray();
+
+    if (existingConflictingUsers.length > 0) {
+      throw new Error(
+        `[COLLISION ERROR]: Found ${existingConflictingUsers.length} conflicting user email(s). Never silently reuse existing accounts!`
+      );
+    }
+
+    if (existingConflictingHouses.length > 0) {
+      throw new Error(
+        `[COLLISION ERROR]: Found ${existingConflictingHouses.length} conflicting house title(s). Never silently overwrite existing houses!`
+      );
+    }
+
+    logger.log("  ✓ Zero collisions detected with pre-existing database records.");
+
+    // Step 5: Schema validation and relational verification
+    logger.log(
+      "\n[5/6] Validating Fixture Schemas, Authorizations, and Referential Integrity..."
+    );
+    const validated = await validateFixtures({
+      demoPassword: demoPasswordRaw,
+      skipAssetCheck: options.skipAssetCheck,
+      publicDir: options.publicDir,
+    });
+
+    logger.log(
+      `  ✓ All ${validated.total} planned documents passed Mongoose schema validation.`
+    );
+    logger.log(
+      `  ✓ Announcement authors verified: all ${validated.announcementCount} announcements authored by house owners.`
+    );
+    logger.log(
+      `  ✓ Post authors verified: all ${validated.postCount} posts authored by active residents.`
+    );
+    logger.log(
+      `  ✓ Maintenance ticket authors verified: all 13 issues authored by active residents.`
+    );
+    if (!options.skipAssetCheck) {
+      logger.log("  ✓ All 24 image asset paths verified to exist on local disk.");
+    }
+    logger.log("  ✓ All foreign key references and compound unique indexes verified.");
+
+    // Check deterministic IDs for collisions in ALL six target collections
+    for (const [colName, ids] of Object.entries(validated.allInsertedIds)) {
+      const collidingDocs = await db
+        .collection(colName)
+        .find({ _id: { $in: ids } })
+        .toArray();
+      if (collidingDocs.length > 0) {
+        throw new Error(
+          `[COLLISION ERROR]: Found ${collidingDocs.length} colliding deterministic ObjectId(s) in collection "${colName}". Never silently overwrite existing documents!`
+        );
+      }
+    }
+    logger.log(
+      "  ✓ Zero deterministic ObjectId collisions across all six target collections."
+    );
+
+    // Step 6: Dry-Run or Apply
+    if (!isApply) {
+      logger.log("\n[6/6] Seed Plan Summary (DRY-RUN Execution):");
+      logger.log("---------------------------------------------------------------");
+      logger.log(`  • Owners:                    ${ownersData.length} documents`);
+      logger.log(`  • Students:                  ${studentsData.length} documents`);
+      logger.log(`  • Boarding Houses:           ${housesData.length} documents (24 multi-photo gallery URLs)`);
+      logger.log(`  • Accommodation Requests:    ${requestsData.length} documents (11 APPROVED, 4 PENDING, 2 REJECTED)`);
+      logger.log(`  • Memberships:               ${membershipsData.length} documents (10 ACTIVE, 1 REVOKED)`);
+      logger.log(`  • Community Posts:           ${communityPostsData.length} documents (${validated.announcementCount} ANNOUNCEMENTS, ${validated.postCount} POSTS)`);
+      logger.log(`  • Maintenance Issues:        ${maintenanceIssuesData.length} documents (5 OPEN, 4 IN_PROGRESS, 4 RESOLVED)`);
+      logger.log("---------------------------------------------------------------");
+      logger.log(`  • TOTAL PLANNED NEW:         ${validated.total} documents (Exact Match: 87)`);
+      logger.log("  • WRITES EXECUTED:           0 (ZERO writes to database)");
+      logger.log("===============================================================");
+      logger.log(" Dry-run completed successfully! Database remains 100% untouched.");
+      logger.log("===============================================================");
+      return { status: "DRY_RUN_SUCCESS", writes: 0, totalPlanned: validated.total };
+    }
+
+    // Guarded Apply execution
+    logger.log("\n[6/6] Executing Guarded Demonstration Data Insertion...");
+
+    // 6.1: Record IN_PROGRESS manifest before inserting any documents
+    const manifestDoc = {
+      manifestVersion: "1.0.0",
+      fixtureVersion: FIXTURE_VERSION,
+      checksum: computeFixtureChecksum(),
+      state: "IN_PROGRESS",
+      seededBy: "BoardInG Demo Data Seeder",
+      startedAt: new Date(),
+      completedAt: null,
+      recordCounts: {
+        users: validated.ownersDocs.length + validated.studentsDocs.length,
+        boardinghouses: validated.housesDocs.length,
+        accommodationrequests: validated.requestsDocs.length,
+        memberships: validated.membershipsDocs.length,
+        communityposts: validated.postsDocs.length,
+        maintenanceissues: validated.issuesDocs.length,
+        total: validated.total,
+      },
+      insertedIds: validated.allInsertedIds,
+    };
+
+    const manifestInsertRes = await db.collection("_seed_manifest").insertOne(manifestDoc);
+    const manifestId = manifestInsertRes.insertedId;
+    logger.log("  ✓ Seed manifest initialized in IN_PROGRESS state.");
+
+    // 6.2: Insert documents sequentially collection by collection with explicit timestamps
+    const toPlain = (d) => {
+      const plain = typeof d.toObject === "function" ? d.toObject() : { ...d };
+      if (d.createdAt && !plain.createdAt) plain.createdAt = d.createdAt;
+      if (d.updatedAt && !plain.updatedAt) plain.updatedAt = d.updatedAt;
+      return plain;
+    };
+
+    const allUsers = [...validated.ownersDocs, ...validated.studentsDocs].map(toPlain);
+    await db.collection("users").insertMany(allUsers, { ordered: true });
+    logger.log(`  ✓ Inserted ${allUsers.length} user accounts.`);
+
+    const allHouses = validated.housesDocs.map(toPlain);
+    await db.collection("boardinghouses").insertMany(allHouses, { ordered: true });
+    logger.log(`  ✓ Inserted ${allHouses.length} boarding houses.`);
+
+    const allRequests = validated.requestsDocs.map(toPlain);
+    await db.collection("accommodationrequests").insertMany(allRequests, { ordered: true });
+    logger.log(`  ✓ Inserted ${allRequests.length} accommodation requests.`);
+
+    const allMemberships = validated.membershipsDocs.map(toPlain);
+    await db.collection("memberships").insertMany(allMemberships, { ordered: true });
+    logger.log(`  ✓ Inserted ${allMemberships.length} memberships.`);
+
+    const allPosts = validated.postsDocs.map(toPlain);
+    await db.collection("communityposts").insertMany(allPosts, { ordered: true });
+    logger.log(`  ✓ Inserted ${allPosts.length} community posts.`);
+
+    const allIssues = validated.issuesDocs.map(toPlain);
+    await db.collection("maintenanceissues").insertMany(allIssues, { ordered: true });
+    logger.log(`  ✓ Inserted ${allIssues.length} maintenance issues.`);
+
+    // 6.3: Verify all 87 records exist in the database
+    const actualUsers = await db.collection("users").countDocuments({ _id: { $in: validated.allInsertedIds.users } });
+    const actualHouses = await db.collection("boardinghouses").countDocuments({ _id: { $in: validated.allInsertedIds.boardinghouses } });
+    const actualReqs = await db.collection("accommodationrequests").countDocuments({ _id: { $in: validated.allInsertedIds.accommodationrequests } });
+    const actualMems = await db.collection("memberships").countDocuments({ _id: { $in: validated.allInsertedIds.memberships } });
+    const actualPosts = await db.collection("communityposts").countDocuments({ _id: { $in: validated.allInsertedIds.communityposts } });
+    const actualIssues = await db.collection("maintenanceissues").countDocuments({ _id: { $in: validated.allInsertedIds.maintenanceissues } });
+
+    const insertedCount = actualUsers + actualHouses + actualReqs + actualMems + actualPosts + actualIssues;
+    if (insertedCount !== validated.total) {
+      throw new Error(
+        `Post-insertion count mismatch: expected ${validated.total}, found ${insertedCount}. Manifest remains IN_PROGRESS.`
+      );
+    }
+
+    // 6.4: Transition manifest to COMPLETED
+    await db.collection("_seed_manifest").updateOne(
+      { _id: manifestId },
+      { $set: { state: "COMPLETED", completedAt: new Date() } }
+    );
+    logger.log("  ✓ All 87 documents verified in database.");
+    logger.log("  ✓ Seed manifest state transitioned to COMPLETED.");
+    logger.log("===============================================================");
+    logger.log(" Seeding completed successfully with full manifest verification!");
+    logger.log("===============================================================");
+
+    return { status: "APPLIED_SUCCESS", writes: insertedCount, totalPlanned: validated.total };
+  } finally {
+    if (didConnect) {
+      await mongoose.disconnect();
+    }
+  }
+}
+
+if (require.main === module) {
+  runSeeder()
+    .then(async () => {
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error("\n[SEEDER ERROR]:", err.message);
+      try {
+        await mongoose.disconnect();
+      } catch {}
+      process.exit(1);
+    });
+}
+
+module.exports = {
+  runSeeder,
+  validateFixtures,
+  verifyBackupFile,
+  verifyDatabaseTarget,
+  verifyMongoUri,
+  computeFixtureChecksum,
+  getObjectId,
+  getDemoPassword,
+  ownersData,
+  studentsData,
+  housesData,
+  requestsData,
+  membershipsData,
+  communityPostsData,
+  maintenanceIssuesData,
+  EXPECTED_BACKUP_PATH,
+  EXPECTED_BACKUP_SHA256,
+  FIXTURE_VERSION,
+  seedManifestSchema,
+};
