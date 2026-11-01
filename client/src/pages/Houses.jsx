@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../services/api";
-import { SearchIcon, PencilIcon, ArchiveIcon, ExternalLinkIcon } from "../components/Icons";
+import { SearchIcon, PencilIcon, ArchiveIcon, ExternalLinkIcon, TrashIcon } from "../components/Icons";
 
 const emptyForm = {
   title: "",
@@ -196,18 +196,21 @@ export function BrowseHouses() {
   const [houses, setHouses] = useState([]);
   const [city, setCity] = useState("");
   const [maxRent, setMaxRent] = useState("");
+  const [sortBy, setSortBy] = useState("newest");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function searchHouses(event) {
+  async function searchHouses(event, customSort) {
     event?.preventDefault();
     setError("");
     setLoading(true);
 
+    const activeSort = customSort !== undefined ? customSort : sortBy;
     const params = new URLSearchParams();
 
     if (city.trim()) params.set("city", city.trim());
     if (maxRent) params.set("maxRent", maxRent);
+    if (activeSort && activeSort !== "newest") params.set("sort", activeSort);
 
     try {
       const suffix = params.toString();
@@ -220,6 +223,11 @@ export function BrowseHouses() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSortChange(newSort) {
+    setSortBy(newSort);
+    searchHouses(null, newSort);
   }
 
   useEffect(() => {
@@ -240,7 +248,7 @@ export function BrowseHouses() {
         onSubmit={searchHouses}
         className="mt-6 grid grid-cols-1 gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:grid-cols-2 lg:flex lg:items-end dark:bg-slate-900 dark:ring-slate-800"
       >
-        <div className="w-full lg:min-w-48 lg:flex-1">
+        <div className="w-full lg:min-w-44 lg:flex-1">
           <label
             htmlFor="search-city"
             className="block text-sm font-medium text-slate-700 dark:text-slate-300"
@@ -273,6 +281,25 @@ export function BrowseHouses() {
             value={maxRent}
             onChange={(e) => setMaxRent(e.target.value)}
           />
+        </div>
+
+        <div className="w-full lg:min-w-44 lg:flex-1">
+          <label
+            htmlFor="search-sort"
+            className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+          >
+            Sort by
+          </label>
+          <select
+            id="search-sort"
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 transition focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            value={sortBy}
+            onChange={(e) => handleSortChange(e.target.value)}
+          >
+            <option value="newest">Newest</option>
+            <option value="rent_asc">Rent Low to High</option>
+            <option value="rent_desc">Rent High to Low</option>
+          </select>
         </div>
 
         <button
@@ -617,6 +644,30 @@ export function OwnerHouses() {
     }
   }
 
+  async function deleteHousePermanently(id, title) {
+    const confirmed = window.confirm(
+      `Permanently delete "${title || "this boarding house"}"?\n\nWarning: This action cannot be undone. Only newly created, unreferenced properties can be permanently deleted.`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+
+    try {
+      await api(`/houses/${id}/permanent`, {
+        method: "DELETE",
+      });
+
+      await loadHouses();
+
+      if (editingId === id) resetForm();
+      setMessage("Boarding house permanently deleted.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   const inputClass =
     "mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 transition placeholder:text-slate-400 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400";
 
@@ -867,8 +918,8 @@ export function OwnerHouses() {
                       {house.status} / {house.availability}
                     </p>
 
-                    {house.status === "ACTIVE" && (
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {house.status === "ACTIVE" && (
                         <button
                           type="button"
                           className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400 dark:hover:bg-slate-700"
@@ -877,18 +928,30 @@ export function OwnerHouses() {
                           <PencilIcon className="size-4" />
                           <span>Edit</span>
                         </button>
+                      )}
 
+                      {house.status === "ACTIVE" && (
                         <button
                           type="button"
-                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-950/40"
-                          onClick={() =>
-                            archiveHouse(house._id)
-                          }
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                          onClick={() => archiveHouse(house._id)}
                         >
                           <ArchiveIcon className="size-4" />
                           <span>Archive</span>
                         </button>
+                      )}
 
+                      <button
+                        type="button"
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-950/40"
+                        onClick={() => deleteHousePermanently(house._id, house.title)}
+                        title="Permanently delete this unreferenced boarding house"
+                      >
+                        <TrashIcon className="size-4" />
+                        <span>Delete</span>
+                      </button>
+
+                      {house.status === "ACTIVE" && (
                         <Link
                           to={`/houses/${house._id}`}
                           className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -896,8 +959,8 @@ export function OwnerHouses() {
                           <ExternalLinkIcon className="size-4" />
                           <span>View Listing</span>
                         </Link>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               );
