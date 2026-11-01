@@ -4,6 +4,10 @@ const crypto = require("crypto");
 
 const User = require("../models/User");
 const BoardingHouse = require("../models/BoardingHouse");
+const AccommodationRequest = require("../models/AccommodationRequest");
+const Membership = require("../models/Membership");
+const CommunityPost = require("../models/CommunityPost");
+const MaintenanceIssue = require("../models/MaintenanceIssue");
 
 const router = express.Router();
 
@@ -106,7 +110,7 @@ function validId(req, res, next) {
 router.get(
   "/",
   asyncRoute(async (req, res) => {
-    const { city, maxRent } = req.query;
+    const { city, maxRent, sort } = req.query;
 
     const filter = { status: "ACTIVE" };
 
@@ -148,8 +152,39 @@ router.get(
       filter.monthlyRentLkr = { $lte: price };
     }
 
+    let sortOption = { createdAt: -1 };
+
+    if (sort !== undefined) {
+      if (typeof sort !== "string") {
+        return res.status(400).json({
+          message: "Invalid sort option",
+        });
+      }
+
+      const normalizedSort = sort.trim().toLowerCase();
+      if (normalizedSort === "newest" || normalizedSort === "") {
+        sortOption = { createdAt: -1 };
+      } else if (
+        normalizedSort === "rent_asc" ||
+        normalizedSort === "rent-asc" ||
+        normalizedSort === "rent_low_to_high"
+      ) {
+        sortOption = { monthlyRentLkr: 1, createdAt: -1 };
+      } else if (
+        normalizedSort === "rent_desc" ||
+        normalizedSort === "rent-desc" ||
+        normalizedSort === "rent_high_to_low"
+      ) {
+        sortOption = { monthlyRentLkr: -1, createdAt: -1 };
+      } else {
+        return res.status(400).json({
+          message: "Invalid sort option",
+        });
+      }
+    }
+
     const houses = await BoardingHouse.find(filter)
-      .sort({ createdAt: -1 })
+      .sort(sortOption)
       .limit(30)
       .lean();
 
@@ -248,14 +283,93 @@ router.patch(
   })
 );
 
+// Permanent deletion handler: checks owner authorization, seed manifest, and linked records
+async function handlePermanentDelete(req, res) {
+  const house = await BoardingHouse.findById(req.params.id);
+
+  if (!house) {
+    return res.status(404).json({
+      message: "Boarding house not found",
+    });
+  }
+
+  if (String(house.ownerId) !== String(req.session.userId)) {
+    return res.status(403).json({
+      message: "You may only delete your own boarding house",
+    });
+  }
+
+  // Protect demonstration houses listed in _seed_manifest
+  if (mongoose.connection && mongoose.connection.db) {
+    try {
+      const seedManifest = await mongoose.connection.collection("_seed_manifest").findOne({
+        $or: [
+          { "insertedIds.boardinghouses": house._id },
+          { "insertedIds.boardinghouses": String(house._id) },
+          { "insertedIds.boardinghouses": new mongoose.Types.ObjectId(req.params.id) },
+        ],
+      });
+
+      if (seedManifest) {
+        return res.status(403).json({
+          message: "Demonstration boarding houses cannot be permanently deleted",
+        });
+      }
+    } catch {
+      // If _seed_manifest collection is absent in isolated tests, ignore
+    }
+  }
+
+  // Reject any property linked to requests, memberships, community posts or maintenance issues
+  const [requestCount, membershipCount, postCount, issueCount] = await Promise.all([
+    AccommodationRequest.countDocuments({ boardingHouseId: house._id }),
+    Membership.countDocuments({ boardingHouseId: house._id }),
+    CommunityPost.countDocuments({ boardingHouseId: house._id }),
+    MaintenanceIssue.countDocuments({ boardingHouseId: house._id }),
+  ]);
+
+  const linked = [];
+  if (requestCount > 0) linked.push(`${requestCount} accommodation request(s)`);
+  if (membershipCount > 0) linked.push(`${membershipCount} membership(s)`);
+  if (postCount > 0) linked.push(`${postCount} community post(s)`);
+  if (issueCount > 0) linked.push(`${issueCount} maintenance issue(s)`);
+
+  if (linked.length > 0) {
+    return res.status(409).json({
+      message: `Cannot delete property: linked to ${linked.join(", ")}. Only unreferenced properties can be permanently deleted.`,
+    });
+  }
+
+  await BoardingHouse.deleteOne({ _id: house._id });
+
+  return res.json({
+    message: "Boarding house permanently deleted",
+    deletedId: house._id,
+  });
+}
+
+// DELETE /api/houses/:id/permanent
+// Permanently delete a newly created, unreferenced boarding house.
+router.delete(
+  "/:id/permanent",
+  requireOwner,
+  requireCsrf,
+  validId,
+  asyncRoute(handlePermanentDelete)
+);
+
 // DELETE /api/houses/:id
-// Archive the property rather than deleting its data.
+// Archive the property rather than deleting its data (or permanently delete if permanent=true query param provided).
 router.delete(
   "/:id",
   requireOwner,
   requireCsrf,
   validId,
-  asyncRoute(async (req, res) => {
+  asyncRoute(async (req, res, next) => {
+    if (req.query.permanent === "true") {
+      return handlePermanentDelete(req, res, next);
+    }
+
     const house = await BoardingHouse.findOneAndUpdate(
       {
         _id: req.params.id,
