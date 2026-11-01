@@ -10,6 +10,25 @@ import { MenuIcon, CloseIcon } from "./components/Icons";
 const navStyle = ({ isActive }) => `rounded-lg px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${isActive ? "bg-blue-800 text-white dark:bg-slate-800 dark:text-blue-300" : "text-blue-100 hover:bg-blue-600 dark:text-slate-300 dark:hover:bg-slate-800"}`;
 const mobileNavStyle = ({ isActive }) => `flex min-h-[44px] items-center rounded-lg px-4 py-3 text-base font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${isActive ? "bg-blue-800 text-white dark:bg-slate-800 dark:text-blue-300" : "text-blue-100 hover:bg-blue-600 dark:text-slate-300 dark:hover:bg-slate-800"}`;
 
+function HomeListingImage({ src, alt }) {
+  const [error, setError] = useState(false);
+  if (!src || error) {
+    return (
+      <div className="flex h-44 items-center justify-center bg-blue-100 font-medium text-blue-800 dark:bg-slate-800 dark:text-blue-300">
+        BoardInG · Student housing
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-44 w-full object-cover"
+      onError={() => setError(true)}
+    />
+  );
+}
+
 function Home() {
   const [houses, setHouses] = useState([]);
   const [error, setError] = useState("");
@@ -27,7 +46,21 @@ function Home() {
       <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Latest listings</h2><p className="mt-1 text-slate-500 dark:text-slate-400">A good place to start your search.</p></div><Link className="inline-flex min-h-[44px] items-center font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:text-blue-400 dark:focus-visible:ring-blue-400 rounded-md px-1" to="/houses">See all houses →</Link></div>
       {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950/60 dark:border dark:border-red-900/60 dark:text-red-300">{error}</p>}
       {!error && houses.length === 0 && <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">No properties have been listed yet. Owners can add the first boarding house from their dashboard.</div>}
-      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{houses.slice(0, 6).map((house) => <Link key={house._id} to={`/houses/${house._id}`} className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:bg-slate-900 dark:ring-slate-800 dark:focus-visible:ring-blue-400">{house.imageUrl ? <img src={house.imageUrl} alt={house.title} className="h-44 w-full object-cover"/> : <div className="flex h-44 items-center justify-center bg-blue-100 text-blue-800 dark:bg-slate-800 dark:text-blue-300">BoardInG · Student housing</div>}<div className="p-5"><h3 className="font-bold text-slate-900 dark:text-slate-100">{house.title}</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{house.area}, {house.city}</p><p className="mt-3 font-semibold text-blue-700 dark:text-blue-400">LKR {house.monthlyRentLkr.toLocaleString()} / month</p></div></Link>)}</div>
+      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {houses.slice(0, 6).map((house) => {
+          const displayImage = Array.isArray(house.imageUrls) && house.imageUrls.length > 0 ? house.imageUrls[0] : house.imageUrl;
+          return (
+            <Link key={house._id} to={`/houses/${house._id}`} className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:bg-slate-900 dark:ring-slate-800 dark:focus-visible:ring-blue-400">
+              <HomeListingImage src={displayImage} alt={house.title} />
+              <div className="p-5">
+                <h3 className="font-bold text-slate-900 dark:text-slate-100">{house.title}</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{house.area}, {house.city}</p>
+                <p className="mt-3 font-semibold text-blue-700 dark:text-blue-400">LKR {house.monthlyRentLkr.toLocaleString()} / month</p>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </section>
   </main>;
 }
