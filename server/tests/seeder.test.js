@@ -10,6 +10,7 @@ const {
   validateFixtures,
   verifyBackupFile,
   verifyDatabaseTarget,
+  verifyMongoUri,
   computeFixtureChecksum,
   getObjectId,
   getDemoPassword,
@@ -22,6 +23,7 @@ const {
   maintenanceIssuesData,
   EXPECTED_BACKUP_PATH,
   EXPECTED_BACKUP_SHA256,
+  FIXTURE_VERSION,
 } = require("../scripts/seedDemoData");
 
 // Temporary test backup file for isolated unit test verification
@@ -93,7 +95,11 @@ function createMockDatabase(initialCollections = {}) {
         async findOne(query = {}) {
           const list = getCol(name);
           if (list.length === 0) return null;
-          return { ...list[0] };
+          if (query && query._id) {
+            const found = list.find((item) => String(item._id) === String(query._id));
+            return found || null;
+          }
+          return list[0] || null;
         },
         async countDocuments(query = {}) {
           const list = getCol(name);
@@ -133,32 +139,32 @@ function createMockDatabase(initialCollections = {}) {
 
 const mockBaseline = {
   users: [
-    { _id: new mongoose.Types.ObjectId(), name: "Existing Owner", email: "existing.owner@real.lk", role: "OWNER" },
-    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 1", email: "existing.stu1@real.lk", role: "STUDENT" },
-    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 2", email: "existing.stu2@real.lk", role: "STUDENT" },
-    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 3", email: "existing.stu3@real.lk", role: "STUDENT" },
+    { _id: new mongoose.Types.ObjectId(), name: "Existing Owner", email: "existing.owner@real.lk", role: "OWNER", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 1", email: "existing.stu1@real.lk", role: "STUDENT", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 2", email: "existing.stu2@real.lk", role: "STUDENT", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), name: "Existing Student 3", email: "existing.stu3@real.lk", role: "STUDENT", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   boardinghouses: [
-    { _id: new mongoose.Types.ObjectId(), title: "Existing Original House", city: "Matara" },
+    { _id: new mongoose.Types.ObjectId(), title: "Existing Original House", city: "Matara", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   accommodationrequests: [
-    { _id: new mongoose.Types.ObjectId(), status: "APPROVED" },
-    { _id: new mongoose.Types.ObjectId(), status: "PENDING" },
+    { _id: new mongoose.Types.ObjectId(), status: "APPROVED", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), status: "PENDING", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   memberships: [
-    { _id: new mongoose.Types.ObjectId(), status: "ACTIVE" },
-    { _id: new mongoose.Types.ObjectId(), status: "ACTIVE" },
+    { _id: new mongoose.Types.ObjectId(), status: "ACTIVE", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), status: "ACTIVE", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   communityposts: [
-    { _id: new mongoose.Types.ObjectId(), type: "ANNOUNCEMENT" },
-    { _id: new mongoose.Types.ObjectId(), type: "POST" },
+    { _id: new mongoose.Types.ObjectId(), type: "ANNOUNCEMENT", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), type: "POST", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   maintenanceissues: [
-    { _id: new mongoose.Types.ObjectId(), status: "OPEN" },
+    { _id: new mongoose.Types.ObjectId(), status: "OPEN", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
   sessions: [
-    { _id: new mongoose.Types.ObjectId(), session: "token-1" },
-    { _id: new mongoose.Types.ObjectId(), session: "token-2" },
+    { _id: new mongoose.Types.ObjectId(), session: "token-1", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
+    { _id: new mongoose.Types.ObjectId(), session: "token-2", createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") },
   ],
 };
 
@@ -239,6 +245,54 @@ test("apply without DEMO_PASSWORD is rejected", async () => {
     }),
     /DEMO_PASSWORD environment variable must be provided/
   );
+});
+
+test("apply without MONGO_URI is rejected", async () => {
+  await assert.rejects(
+    runSeeder({
+      isApply: true,
+      confirmArg: true,
+      envConfirm: "yes",
+      demoPassword: "secretPassword123",
+      mongoUri: "",
+      backupPath: TEST_BACKUP_PATH,
+      expectedBackupSha: TEST_BACKUP_SHA256,
+      logger: silentLogger,
+    }),
+    /Apply rejected: MONGO_URI environment variable is required and must be explicitly configured!/
+  );
+});
+
+test("verifyMongoUri validates local target and rejects invalid or remote configurations", () => {
+  assert.throws(() => verifyMongoUri(""), /MONGO_URI environment variable is required/);
+  assert.throws(() => verifyMongoUri(null), /MONGO_URI environment variable is required/);
+  assert.throws(() => verifyMongoUri("not_a_valid_uri"), /not a valid MongoDB connection string/);
+  assert.throws(
+    () => verifyMongoUri("mongodb://cluster0.example.mongodb.net:27017/boarding_db"),
+    /MONGO_URI target must be local/
+  );
+  assert.throws(
+    () => verifyMongoUri("mongodb://192.168.1.100:27017/boarding_db"),
+    /MONGO_URI target must be local/
+  );
+  assert.throws(
+    () => verifyMongoUri("mongodb://127.0.0.1:27018/boarding_db"),
+    /MONGO_URI port must be 27017/
+  );
+  assert.throws(
+    () => verifyMongoUri("mongodb://127.0.0.1:27017/wrong_db"),
+    /MONGO_URI target database must be "boarding_db"/
+  );
+
+  const res1 = verifyMongoUri("mongodb://127.0.0.1:27017/boarding_db");
+  assert.equal(res1.sanitized, "mongodb://127.0.0.1:27017/boarding_db");
+
+  const res2 = verifyMongoUri("mongodb://localhost:27017/boarding_db");
+  assert.equal(res2.sanitized, "mongodb://localhost:27017/boarding_db");
+
+  const resAuth = verifyMongoUri("mongodb://app_admin:superSecretPass123@127.0.0.1:27017/boarding_db");
+  assert.equal(resAuth.sanitized, "mongodb://127.0.0.1:27017/boarding_db");
+  assert.equal(resAuth.sanitized.includes("superSecretPass123"), false);
 });
 
 test("apply with unexpected database name is rejected", () => {
@@ -499,6 +553,7 @@ test("successful fixture insertion and idempotency tested with mock database", a
     confirmArg: true,
     envConfirm: "yes",
     demoPassword: "SecretDemoPassword123!",
+    mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
     backupPath: TEST_BACKUP_PATH,
     expectedBackupSha: TEST_BACKUP_SHA256,
     connection: mockConnection,
@@ -525,6 +580,18 @@ test("successful fixture insertion and idempotency tested with mock database", a
   assert.equal(mockDb._store.get("communityposts").length, 2 + 22);
   assert.equal(mockDb._store.get("maintenanceissues").length, 1 + 13);
 
+  // Verify all 87 inserted documents have valid createdAt and updatedAt timestamps
+  for (const colName of ["users", "boardinghouses", "accommodationrequests", "memberships", "communityposts", "maintenanceissues"]) {
+    const docs = mockDb._store.get(colName);
+    for (const d of docs) {
+      assert.ok(d.createdAt, `Document in ${colName} must have createdAt`);
+      assert.ok(d.updatedAt, `Document in ${colName} must have updatedAt`);
+      assert.ok(!isNaN(new Date(d.createdAt).getTime()));
+      assert.ok(!isNaN(new Date(d.updatedAt).getTime()));
+      assert.ok(new Date(d.createdAt) <= new Date(d.updatedAt));
+    }
+  }
+
   // Existing baseline records across all collections were strictly untouched:
   assert.equal(
     mockDb._store.get("users").find((u) => u.email === "existing.owner@real.lk")?.name,
@@ -535,12 +602,13 @@ test("successful fixture insertion and idempotency tested with mock database", a
     "Matara"
   );
 
-  // Second apply: Detects existing COMPLETED manifest and performs zero writes (idempotency)
+  // Second apply: Detects existing COMPLETED manifest, verifies all 87 documents and performs zero writes (idempotency)
   const secondApplyRes = await runSeeder({
     isApply: true,
     confirmArg: true,
     envConfirm: "yes",
     demoPassword: "SecretDemoPassword123!",
+    mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
     backupPath: TEST_BACKUP_PATH,
     expectedBackupSha: TEST_BACKUP_SHA256,
     connection: mockConnection,
@@ -555,6 +623,213 @@ test("successful fixture insertion and idempotency tested with mock database", a
   // Total counts remained identical
   assert.equal(mockDb._store.get("users").length, 20);
   assert.equal(mockDb._store.get("boardinghouses").length, 9);
+});
+
+test("completed manifest with mismatched fixtureVersion or checksum is rejected", async () => {
+  const mockDb = createMockDatabase(mockBaseline);
+  const mockConnection = { host: "127.0.0.1", port: 27017, name: "boarding_db", db: mockDb };
+
+  // Seed successfully first
+  await runSeeder({
+    isApply: true,
+    confirmArg: true,
+    envConfirm: "yes",
+    demoPassword: "SecretDemoPassword123!",
+    mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+    backupPath: TEST_BACKUP_PATH,
+    expectedBackupSha: TEST_BACKUP_SHA256,
+    connection: mockConnection,
+    dbOverride: mockDb,
+    skipAssetCheck: true,
+    logger: silentLogger,
+  });
+
+  const manifest = await mockDb.collection("_seed_manifest").findOne();
+
+  // Test fixture version mismatch
+  manifest.fixtureVersion = "wrong-outdated-version";
+  await assert.rejects(
+    runSeeder({
+      isApply: true,
+      confirmArg: true,
+      envConfirm: "yes",
+      demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+      backupPath: TEST_BACKUP_PATH,
+      expectedBackupSha: TEST_BACKUP_SHA256,
+      connection: mockConnection,
+      dbOverride: mockDb,
+      skipAssetCheck: true,
+      logger: silentLogger,
+    }),
+    /\[MANIFEST ERROR\]: Fixture version mismatch/
+  );
+
+  // Restore fixture version and test checksum mismatch
+  manifest.fixtureVersion = FIXTURE_VERSION;
+  manifest.checksum = "0000000000000000000000000000000000000000000000000000000000000000";
+  await assert.rejects(
+    runSeeder({
+      isApply: true,
+      confirmArg: true,
+      envConfirm: "yes",
+      demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+      backupPath: TEST_BACKUP_PATH,
+      expectedBackupSha: TEST_BACKUP_SHA256,
+      connection: mockConnection,
+      dbOverride: mockDb,
+      skipAssetCheck: true,
+      logger: silentLogger,
+    }),
+    /\[MANIFEST ERROR\]: Checksum mismatch/
+  );
+});
+
+test("completed manifest with invalid recordCounts is rejected", async () => {
+  const mockDb = createMockDatabase(mockBaseline);
+  const mockConnection = { host: "127.0.0.1", port: 27017, name: "boarding_db", db: mockDb };
+
+  await runSeeder({
+    isApply: true,
+    confirmArg: true,
+    envConfirm: "yes",
+    demoPassword: "SecretDemoPassword123!",
+    mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+    backupPath: TEST_BACKUP_PATH,
+    expectedBackupSha: TEST_BACKUP_SHA256,
+    connection: mockConnection,
+    dbOverride: mockDb,
+    skipAssetCheck: true,
+    logger: silentLogger,
+  });
+
+  const manifest = await mockDb.collection("_seed_manifest").findOne();
+  manifest.recordCounts.total = 86; // Tampered count
+
+  await assert.rejects(
+    runSeeder({
+      isApply: true,
+      confirmArg: true,
+      envConfirm: "yes",
+      demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+      backupPath: TEST_BACKUP_PATH,
+      expectedBackupSha: TEST_BACKUP_SHA256,
+      connection: mockConnection,
+      dbOverride: mockDb,
+      skipAssetCheck: true,
+      logger: silentLogger,
+    }),
+    /\[MANIFEST ERROR\]: Total record count in manifest is invalid/
+  );
+});
+
+test("completed manifest with altered document identity is rejected", async () => {
+  const mockDb = createMockDatabase(mockBaseline);
+  const mockConnection = { host: "127.0.0.1", port: 27017, name: "boarding_db", db: mockDb };
+
+  await runSeeder({
+    isApply: true,
+    confirmArg: true,
+    envConfirm: "yes",
+    demoPassword: "SecretDemoPassword123!",
+    mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+    backupPath: TEST_BACKUP_PATH,
+    expectedBackupSha: TEST_BACKUP_SHA256,
+    connection: mockConnection,
+    dbOverride: mockDb,
+    skipAssetCheck: true,
+    logger: silentLogger,
+  });
+
+  // Alter an owner's email in the database
+  const owner = mockDb._store.get("users").find((u) => u.email === "sunil.perera@example.com");
+  owner.email = "tampered.owner@example.com";
+
+  await assert.rejects(
+    runSeeder({
+      isApply: true,
+      confirmArg: true,
+      envConfirm: "yes",
+      demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
+      backupPath: TEST_BACKUP_PATH,
+      expectedBackupSha: TEST_BACKUP_SHA256,
+      connection: mockConnection,
+      dbOverride: mockDb,
+      skipAssetCheck: true,
+      logger: silentLogger,
+    }),
+    /\[DATABASE VERIFICATION ERROR\]: Stored user identity mismatch for owner owner-1/
+  );
+});
+
+test("all 87 fixtures have valid createdAt and updatedAt with sensible chronology", async () => {
+  const validated = await validateFixtures();
+
+  const allDocs = [
+    ...validated.ownersDocs,
+    ...validated.studentsDocs,
+    ...validated.housesDocs,
+    ...validated.requestsDocs,
+    ...validated.membershipsDocs,
+    ...validated.postsDocs,
+    ...validated.issuesDocs,
+  ];
+
+  assert.equal(allDocs.length, 87);
+  for (const d of allDocs) {
+    assert.ok(d.createdAt instanceof Date, "createdAt must be Date");
+    assert.ok(d.updatedAt instanceof Date, "updatedAt must be Date");
+    assert.ok(!isNaN(d.createdAt.getTime()), "createdAt must be valid timestamp");
+    assert.ok(!isNaN(d.updatedAt.getTime()), "updatedAt must be valid timestamp");
+    assert.ok(d.createdAt <= d.updatedAt, "createdAt must be <= updatedAt");
+  }
+
+  // Owners created May 2026
+  for (const o of validated.ownersDocs) {
+    assert.ok(o.createdAt >= new Date("2026-05-01T00:00:00Z"));
+    assert.ok(o.createdAt <= new Date("2026-05-03T00:00:00Z"));
+  }
+
+  // Houses created May 2026 after owners
+  for (const h of validated.housesDocs) {
+    assert.ok(h.createdAt >= new Date("2026-05-03T00:00:00Z"));
+    assert.ok(h.createdAt <= new Date("2026-05-07T00:00:00Z"));
+  }
+
+  // Requests: reviewed requests have updatedAt === reviewedAt
+  for (const r of validated.requestsDocs) {
+    if (r.reviewedAt) {
+      assert.equal(r.updatedAt.getTime(), r.reviewedAt.getTime());
+      assert.ok(r.createdAt < r.updatedAt);
+    }
+  }
+
+  // Memberships: createdAt === joinedAt
+  for (const m of validated.membershipsDocs) {
+    assert.equal(m.createdAt.getTime(), m.joinedAt.getTime());
+    if (m.revokedAt) {
+      assert.equal(m.updatedAt.getTime(), m.revokedAt.getTime());
+      assert.ok(m.createdAt < m.updatedAt);
+    } else {
+      assert.equal(m.updatedAt.getTime(), m.createdAt.getTime());
+    }
+  }
+
+  // Community posts in September
+  for (const p of validated.postsDocs) {
+    assert.ok(p.createdAt >= new Date("2026-09-01T00:00:00Z"));
+  }
+
+  // Maintenance issues in September
+  for (const i of validated.issuesDocs) {
+    assert.ok(i.createdAt >= new Date("2026-09-01T00:00:00Z"));
+    if (i.status === "RESOLVED") {
+      assert.ok(i.updatedAt > i.createdAt);
+    }
+  }
 });
 
 test("partial-failure handling leaves incomplete manifest and refuses unsafe retries", async () => {
@@ -574,6 +849,7 @@ test("partial-failure handling leaves incomplete manifest and refuses unsafe ret
       confirmArg: true,
       envConfirm: "yes",
       demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
       backupPath: TEST_BACKUP_PATH,
       expectedBackupSha: TEST_BACKUP_SHA256,
       connection: mockConnection,
@@ -600,6 +876,7 @@ test("partial-failure handling leaves incomplete manifest and refuses unsafe ret
       confirmArg: true,
       envConfirm: "yes",
       demoPassword: "SecretDemoPassword123!",
+      mongoUri: "mongodb://127.0.0.1:27017/boarding_db",
       backupPath: TEST_BACKUP_PATH,
       expectedBackupSha: TEST_BACKUP_SHA256,
       connection: mockConnection,

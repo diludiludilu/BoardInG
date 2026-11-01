@@ -93,6 +93,61 @@ function verifyDatabaseTarget(connection, options = {}) {
   }
 }
 
+function verifyMongoUri(rawUri, options = {}) {
+  if (!rawUri || typeof rawUri !== "string" || rawUri.trim().length === 0) {
+    throw new Error(
+      "Apply rejected: MONGO_URI environment variable is required and must be explicitly configured!"
+    );
+  }
+
+  let parsed;
+  try {
+    const normalized = rawUri.replace(/^mongodb(?:\+srv)?:\/\//i, "http://");
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(
+      "Safety guard blocked connection: MONGO_URI is not a valid MongoDB connection string."
+    );
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocal =
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]";
+
+  if (!isLocal) {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI target must be local (127.0.0.1, localhost, or ::1). Found host: "${hostname}".`
+    );
+  }
+
+  const port = parsed.port || "27017";
+  if (port !== "27017") {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI port must be 27017. Found port: "${port}".`
+    );
+  }
+
+  const expectedDb = options.expectedDb || "boarding_db";
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  const dbName = pathParts[0] ? pathParts[0].split("?")[0] : "";
+
+  if (dbName !== expectedDb) {
+    throw new Error(
+      `Safety guard blocked connection: MONGO_URI target database must be "${expectedDb}". Found db: "${dbName || "none"}".`
+    );
+  }
+
+  return {
+    hostname,
+    port: parseInt(port, 10),
+    dbName,
+    sanitized: `mongodb://${hostname}:${port}/${dbName}`,
+  };
+}
+
 // 2. Geographically Diverse Sri Lankan University Fixture Definitions
 const ownersData = [
   {
@@ -884,31 +939,70 @@ async function validateFixtures(options = {}) {
     options.issuesOverride ||
     maintenanceIssuesData;
 
+  const ownerDates = {
+    "owner-1": new Date("2026-05-01T08:00:00.000Z"),
+    "owner-2": new Date("2026-05-01T08:30:00.000Z"),
+    "owner-3": new Date("2026-05-02T09:00:00.000Z"),
+    "owner-4": new Date("2026-05-02T09:30:00.000Z"),
+  };
+
   const ownersDocs = [];
   for (const o of ownersList) {
+    const createdAt = ownerDates[o.key] || new Date("2026-05-01T08:00:00.000Z");
     const doc = new User({
       _id: getObjectId(o.key),
       name: o.name,
       email: o.email,
       passwordHash,
       role: o.role,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
     ownersDocs.push(doc);
   }
 
+  const studentDates = {
+    "student-09": new Date("2026-05-08T09:00:00.000Z"),
+    "student-02": new Date("2026-08-10T09:00:00.000Z"),
+    "student-03": new Date("2026-08-10T09:30:00.000Z"),
+    "student-01": new Date("2026-08-25T10:00:00.000Z"),
+    "student-04": new Date("2026-08-26T10:00:00.000Z"),
+    "student-05": new Date("2026-08-26T11:00:00.000Z"),
+    "student-06": new Date("2026-08-27T10:00:00.000Z"),
+    "student-07": new Date("2026-08-27T11:00:00.000Z"),
+    "student-08": new Date("2026-08-28T10:00:00.000Z"),
+    "student-10": new Date("2026-08-29T10:00:00.000Z"),
+    "student-11": new Date("2026-08-29T11:00:00.000Z"),
+    "student-12": new Date("2026-09-01T09:00:00.000Z"),
+  };
+
   const studentsDocs = [];
   for (const s of studentsList) {
+    const createdAt = studentDates[s.key] || new Date("2026-08-25T10:00:00.000Z");
     const doc = new User({
       _id: getObjectId(s.key),
       name: s.name,
       email: s.email,
       passwordHash,
       role: s.role,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
     studentsDocs.push(doc);
   }
+
+  const houseDates = {
+    "house-1": new Date("2026-05-03T10:00:00.000Z"),
+    "house-2": new Date("2026-05-03T11:00:00.000Z"),
+    "house-3": new Date("2026-05-04T10:00:00.000Z"),
+    "house-4": new Date("2026-05-04T11:00:00.000Z"),
+    "house-5": new Date("2026-05-05T10:00:00.000Z"),
+    "house-6": new Date("2026-05-05T11:00:00.000Z"),
+    "house-7": new Date("2026-05-06T10:00:00.000Z"),
+    "house-8": new Date("2026-05-06T11:00:00.000Z"),
+  };
 
   const housesDocs = [];
   for (const h of housesList) {
@@ -925,6 +1019,7 @@ async function validateFixtures(options = {}) {
       }
     }
 
+    const createdAt = houseDates[h.key] || new Date("2026-05-03T10:00:00.000Z");
     const doc = new BoardingHouse({
       _id: getObjectId(h.key),
       ownerId: getObjectId(h.ownerKey),
@@ -938,6 +1033,8 @@ async function validateFixtures(options = {}) {
       imageUrl: h.imageUrls[0],
       availability: h.availability,
       status: h.status,
+      createdAt,
+      updatedAt: createdAt,
     });
     await doc.validate();
     housesDocs.push(doc);
@@ -954,6 +1051,19 @@ async function validateFixtures(options = {}) {
     }
     requestPairs.add(pair);
 
+    let createdAt, updatedAt;
+    if (r.reviewedAt) {
+      createdAt = new Date(new Date(r.reviewedAt).getTime() - 24 * 60 * 60 * 1000);
+      updatedAt = new Date(r.reviewedAt);
+    } else if (r.status === "PENDING") {
+      const offsetDays = requestsDocs.length % 5;
+      createdAt = new Date(`2026-09-${String(4 + offsetDays).padStart(2, "0")}T14:00:00.000Z`);
+      updatedAt = createdAt;
+    } else {
+      createdAt = new Date("2026-09-02T10:00:00.000Z");
+      updatedAt = new Date("2026-09-03T16:00:00.000Z");
+    }
+
     const doc = new AccommodationRequest({
       _id: getObjectId(`req:${r.studentKey}:${r.houseKey}`),
       studentId: getObjectId(r.studentKey),
@@ -961,6 +1071,8 @@ async function validateFixtures(options = {}) {
       message: r.message,
       status: r.status,
       reviewedAt: r.reviewedAt || null,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
     requestsDocs.push(doc);
@@ -981,13 +1093,19 @@ async function validateFixtures(options = {}) {
       activeMemberships.add(pair);
     }
 
+    const joinedDate = m.joinedAt ? new Date(m.joinedAt) : new Date("2026-09-01T10:00:00.000Z");
+    const createdAt = joinedDate;
+    const updatedAt = m.revokedAt ? new Date(m.revokedAt) : joinedDate;
+
     const doc = new Membership({
       _id: getObjectId(`mem:${m.studentKey}:${m.houseKey}`),
       studentId: getObjectId(m.studentKey),
       boardingHouseId: getObjectId(m.houseKey),
       status: m.status,
-      joinedAt: m.joinedAt,
+      joinedAt: joinedDate,
       revokedAt: m.revokedAt || null,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
     membershipsDocs.push(doc);
@@ -1022,12 +1140,17 @@ async function validateFixtures(options = {}) {
       postCount++;
     }
 
+    const basePostTime = new Date("2026-09-02T08:00:00.000Z").getTime();
+    const postTime = new Date(basePostTime + idx * 26 * 3600 * 1000);
+
     const doc = new CommunityPost({
       _id: getObjectId(`post:${idx + 1}:${p.houseKey}:${p.authorKey}`),
       boardingHouseId: getObjectId(p.houseKey),
       authorId: getObjectId(p.authorKey),
       type: p.type,
       content: p.content,
+      createdAt: postTime,
+      updatedAt: postTime,
     });
     await doc.validate();
     postsDocs.push(doc);
@@ -1043,6 +1166,15 @@ async function validateFixtures(options = {}) {
       );
     }
 
+    const baseIssueTime = new Date("2026-09-05T09:00:00.000Z").getTime();
+    const createdAt = new Date(baseIssueTime + idx * 36 * 3600 * 1000);
+    let updatedAt = createdAt;
+    if (i.status === "RESOLVED") {
+      updatedAt = new Date(createdAt.getTime() + 48 * 3600 * 1000);
+    } else if (i.status === "IN_PROGRESS") {
+      updatedAt = new Date(createdAt.getTime() + 24 * 3600 * 1000);
+    }
+
     const doc = new MaintenanceIssue({
       _id: getObjectId(`issue:${idx + 1}:${i.houseKey}:${i.studentKey}`),
       boardingHouseId: getObjectId(i.houseKey),
@@ -1050,6 +1182,8 @@ async function validateFixtures(options = {}) {
       title: i.title,
       description: i.description,
       status: i.status,
+      createdAt,
+      updatedAt,
     });
     await doc.validate();
     issuesDocs.push(doc);
@@ -1154,19 +1288,46 @@ async function runSeeder(options = {}) {
   logger.log("\n[2/6] Connecting to MongoDB and Verifying Target...");
   let connection = options.connection;
   let didConnect = false;
-  if (!connection) {
+
+  const expectedDb = options.expectedDb || "boarding_db";
+
+  if (isApply) {
+    const rawMongoUri =
+      options.mongoUri !== undefined
+        ? options.mongoUri
+        : process.env.MONGO_URI;
+
+    if (!rawMongoUri || typeof rawMongoUri !== "string" || rawMongoUri.trim().length === 0) {
+      throw new Error(
+        "Apply rejected: MONGO_URI environment variable is required and must be explicitly configured!"
+      );
+    }
+
+    const uriInfo = verifyMongoUri(rawMongoUri, { expectedDb });
+    logger.log(`  ✓ Verified MONGO_URI target: ${uriInfo.sanitized}`);
+
+    if (!connection) {
+      await mongoose.connect(rawMongoUri, { autoIndex: false, autoCreate: false });
+      connection = mongoose.connection;
+      didConnect = true;
+    }
+  } else {
     const mongoUri =
       options.mongoUri ||
+      process.env.MONGO_URI ||
       process.env.MONGODB_URI ||
       "mongodb://127.0.0.1:27017/boarding_db";
-    await mongoose.connect(mongoUri, { autoIndex: false, autoCreate: false });
-    connection = mongoose.connection;
-    didConnect = true;
+
+    if (!connection) {
+      await mongoose.connect(mongoUri, { autoIndex: false, autoCreate: false });
+      connection = mongoose.connection;
+      didConnect = true;
+    }
   }
 
   try {
     verifyDatabaseTarget(connection, {
-      expectedDb: options.expectedDb || "boarding_db",
+      expectedDb,
     });
     logger.log(
       `  ✓ Connected to: ${connection.host}:${connection.port}/${connection.name}`
@@ -1218,29 +1379,243 @@ async function runSeeder(options = {}) {
         logger.log(
           `  ✓ Found existing seed manifest (Fixture Version: ${existingManifest.fixtureVersion}, Completed: ${existingManifest.completedAt})`
         );
-        let allFound = true;
-        for (const [col, ids] of Object.entries(existingManifest.insertedIds || {})) {
-          const count = await db.collection(col).countDocuments({ _id: { $in: ids } });
-          if (count !== ids.length) {
-            allFound = false;
-            break;
+
+        // 1. Fixture version verification
+        if (existingManifest.fixtureVersion !== FIXTURE_VERSION) {
+          throw new Error(
+            `[MANIFEST ERROR]: Fixture version mismatch! Expected "${FIXTURE_VERSION}", but manifest recorded "${existingManifest.fixtureVersion}". Refusing to proceed.`
+          );
+        }
+
+        // 2. Checksum verification
+        const expectedChecksum = computeFixtureChecksum();
+        if (existingManifest.checksum !== expectedChecksum) {
+          throw new Error(
+            `[MANIFEST ERROR]: Checksum mismatch! Expected fixture checksum "${expectedChecksum}", but manifest recorded "${existingManifest.checksum}". Refusing to proceed.`
+          );
+        }
+
+        // 3. Expected 87 IDs & Per-collection counts in manifest
+        const expectedCounts = {
+          users: 16,
+          boardinghouses: 8,
+          accommodationrequests: 17,
+          memberships: 11,
+          communityposts: 22,
+          maintenanceissues: 13,
+        };
+
+        if (!existingManifest.recordCounts || existingManifest.recordCounts.total !== 87) {
+          throw new Error(
+            `[MANIFEST ERROR]: Total record count in manifest is invalid! Expected 87, found ${existingManifest.recordCounts?.total ?? 0}.`
+          );
+        }
+
+        for (const [col, count] of Object.entries(expectedCounts)) {
+          if (existingManifest.recordCounts[col] !== count) {
+            throw new Error(
+              `[MANIFEST ERROR]: Record count for "${col}" in manifest is invalid! Expected ${count}, found ${existingManifest.recordCounts[col]}.`
+            );
           }
         }
-        if (allFound) {
-          logger.log(
-            "  ✓ All 87 demonstration documents are already present and verified in the database."
-          );
-          logger.log("  ✓ Status: COMPLETED. Zero writes executed.");
-          return {
-            status: "ALREADY_SEEDED",
-            writes: 0,
-            manifest: existingManifest,
-          };
-        } else {
+
+        if (!existingManifest.insertedIds || typeof existingManifest.insertedIds !== "object") {
           throw new Error(
-            "Seed manifest is COMPLETED but database state is altered or corrupted! Refusing to modify database."
+            "[MANIFEST ERROR]: Manifest insertedIds is missing or invalid! Refusing to proceed."
           );
         }
+
+        for (const [col, count] of Object.entries(expectedCounts)) {
+          const ids = existingManifest.insertedIds[col];
+          if (!Array.isArray(ids) || ids.length !== count) {
+            throw new Error(
+              `[MANIFEST ERROR]: Inserted IDs for "${col}" in manifest invalid! Expected ${count} IDs, found ${ids?.length ?? 0}.`
+            );
+          }
+        }
+
+        // 4. Stored document identities & important fields verification in database
+        // 4.1: Users
+        const userDocs = await db
+          .collection("users")
+          .find({ _id: { $in: existingManifest.insertedIds.users } })
+          .toArray();
+        if (userDocs.length !== 16) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 16 seeded users in database, but found ${userDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const userMap = new Map(userDocs.map((u) => [String(u._id), u]));
+        for (const o of ownersData) {
+          const doc = userMap.get(String(getObjectId(o.key)));
+          if (!doc || doc.email !== o.email || doc.role !== o.role || doc.name !== o.name) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user identity mismatch for owner ${o.key} (${o.email}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user ${o.key} is missing valid timestamps!`
+            );
+          }
+        }
+        for (const s of studentsData) {
+          const doc = userMap.get(String(getObjectId(s.key)));
+          if (!doc || doc.email !== s.email || doc.role !== s.role || doc.name !== s.name) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user identity mismatch for student ${s.key} (${s.email}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored user ${s.key} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.2: Boarding Houses
+        const houseDocs = await db
+          .collection("boardinghouses")
+          .find({ _id: { $in: existingManifest.insertedIds.boardinghouses } })
+          .toArray();
+        if (houseDocs.length !== 8) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 8 seeded boarding houses in database, but found ${houseDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const houseMap = new Map(houseDocs.map((h) => [String(h._id), h]));
+        for (const h of housesData) {
+          const doc = houseMap.get(String(getObjectId(h.key)));
+          if (!doc || doc.title !== h.title || String(doc.ownerId) !== String(getObjectId(h.ownerKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored boarding house mismatch for ${h.key} ("${h.title}"). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored house ${h.key} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.3: Accommodation Requests
+        const reqDocs = await db
+          .collection("accommodationrequests")
+          .find({ _id: { $in: existingManifest.insertedIds.accommodationrequests } })
+          .toArray();
+        if (reqDocs.length !== 17) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 17 seeded accommodation requests in database, but found ${reqDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const reqMap = new Map(reqDocs.map((r) => [String(r._id), r]));
+        for (const r of requestsData) {
+          const expectedId = String(getObjectId(`req:${r.studentKey}:${r.houseKey}`));
+          const doc = reqMap.get(expectedId);
+          if (!doc || doc.status !== r.status || String(doc.studentId) !== String(getObjectId(r.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(r.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored accommodation request mismatch for ${r.studentKey} -> ${r.houseKey}. Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored request ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.4: Memberships
+        const memDocs = await db
+          .collection("memberships")
+          .find({ _id: { $in: existingManifest.insertedIds.memberships } })
+          .toArray();
+        if (memDocs.length !== 11) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 11 seeded memberships in database, but found ${memDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const memMap = new Map(memDocs.map((m) => [String(m._id), m]));
+        for (const m of membershipsData) {
+          const expectedId = String(getObjectId(`mem:${m.studentKey}:${m.houseKey}`));
+          const doc = memMap.get(expectedId);
+          if (!doc || doc.status !== m.status || String(doc.studentId) !== String(getObjectId(m.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(m.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored membership mismatch for ${m.studentKey} -> ${m.houseKey}. Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored membership ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.5: Community Posts
+        const postDocs = await db
+          .collection("communityposts")
+          .find({ _id: { $in: existingManifest.insertedIds.communityposts } })
+          .toArray();
+        if (postDocs.length !== 22) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 22 seeded community posts in database, but found ${postDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const postMap = new Map(postDocs.map((p) => [String(p._id), p]));
+        for (let idx = 0; idx < communityPostsData.length; idx++) {
+          const p = communityPostsData[idx];
+          const expectedId = String(getObjectId(`post:${idx + 1}:${p.houseKey}:${p.authorKey}`));
+          const doc = postMap.get(expectedId);
+          if (!doc || doc.type !== p.type || String(doc.authorId) !== String(getObjectId(p.authorKey)) || String(doc.boardingHouseId) !== String(getObjectId(p.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored community post mismatch for post ${idx + 1} (${p.houseKey}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored post ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        // 4.6: Maintenance Issues
+        const issueDocs = await db
+          .collection("maintenanceissues")
+          .find({ _id: { $in: existingManifest.insertedIds.maintenanceissues } })
+          .toArray();
+        if (issueDocs.length !== 13) {
+          throw new Error(
+            `[DATABASE VERIFICATION ERROR]: Expected 13 seeded maintenance issues in database, but found ${issueDocs.length}. Manifest state inconsistent!`
+          );
+        }
+        const issueMap = new Map(issueDocs.map((i) => [String(i._id), i]));
+        for (let idx = 0; idx < maintenanceIssuesData.length; idx++) {
+          const i = maintenanceIssuesData[idx];
+          const expectedId = String(getObjectId(`issue:${idx + 1}:${i.houseKey}:${i.studentKey}`));
+          const doc = issueMap.get(expectedId);
+          if (!doc || doc.status !== i.status || String(doc.studentId) !== String(getObjectId(i.studentKey)) || String(doc.boardingHouseId) !== String(getObjectId(i.houseKey))) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored maintenance issue mismatch for issue ${idx + 1} (${i.houseKey}). Database state altered or corrupted!`
+            );
+          }
+          if (!doc.createdAt || !doc.updatedAt) {
+            throw new Error(
+              `[DATABASE VERIFICATION ERROR]: Stored issue ${expectedId} is missing valid timestamps!`
+            );
+          }
+        }
+
+        logger.log(
+          "  ✓ Manifest fixture version, checksum, 87 IDs, per-collection counts, and stored document identities verified."
+        );
+        logger.log(
+          "  ✓ All 87 demonstration documents are present, unaltered, and verified in the database."
+        );
+        logger.log("  ✓ Status: COMPLETED. Zero writes executed.");
+        return {
+          status: "ALREADY_SEEDED",
+          writes: 0,
+          manifest: existingManifest,
+        };
       } else if (existingManifest.state === "IN_PROGRESS") {
         throw new Error(
           `Incomplete seed state detected: A prior seed run began at ${existingManifest.startedAt} but was not completed! Halting execution to prevent data corruption. Manual review required. No records were deleted or modified.`
@@ -1394,40 +1769,35 @@ async function runSeeder(options = {}) {
     const manifestId = manifestInsertRes.insertedId;
     logger.log("  ✓ Seed manifest initialized in IN_PROGRESS state.");
 
-    // 6.2: Insert documents sequentially collection by collection
-    const allUsers = [...validated.ownersDocs, ...validated.studentsDocs].map(
-      (d) => (typeof d.toObject === "function" ? d.toObject() : d)
-    );
+    // 6.2: Insert documents sequentially collection by collection with explicit timestamps
+    const toPlain = (d) => {
+      const plain = typeof d.toObject === "function" ? d.toObject() : { ...d };
+      if (d.createdAt && !plain.createdAt) plain.createdAt = d.createdAt;
+      if (d.updatedAt && !plain.updatedAt) plain.updatedAt = d.updatedAt;
+      return plain;
+    };
+
+    const allUsers = [...validated.ownersDocs, ...validated.studentsDocs].map(toPlain);
     await db.collection("users").insertMany(allUsers, { ordered: true });
     logger.log(`  ✓ Inserted ${allUsers.length} user accounts.`);
 
-    const allHouses = validated.housesDocs.map((d) =>
-      typeof d.toObject === "function" ? d.toObject() : d
-    );
+    const allHouses = validated.housesDocs.map(toPlain);
     await db.collection("boardinghouses").insertMany(allHouses, { ordered: true });
     logger.log(`  ✓ Inserted ${allHouses.length} boarding houses.`);
 
-    const allRequests = validated.requestsDocs.map((d) =>
-      typeof d.toObject === "function" ? d.toObject() : d
-    );
+    const allRequests = validated.requestsDocs.map(toPlain);
     await db.collection("accommodationrequests").insertMany(allRequests, { ordered: true });
     logger.log(`  ✓ Inserted ${allRequests.length} accommodation requests.`);
 
-    const allMemberships = validated.membershipsDocs.map((d) =>
-      typeof d.toObject === "function" ? d.toObject() : d
-    );
+    const allMemberships = validated.membershipsDocs.map(toPlain);
     await db.collection("memberships").insertMany(allMemberships, { ordered: true });
     logger.log(`  ✓ Inserted ${allMemberships.length} memberships.`);
 
-    const allPosts = validated.postsDocs.map((d) =>
-      typeof d.toObject === "function" ? d.toObject() : d
-    );
+    const allPosts = validated.postsDocs.map(toPlain);
     await db.collection("communityposts").insertMany(allPosts, { ordered: true });
     logger.log(`  ✓ Inserted ${allPosts.length} community posts.`);
 
-    const allIssues = validated.issuesDocs.map((d) =>
-      typeof d.toObject === "function" ? d.toObject() : d
-    );
+    const allIssues = validated.issuesDocs.map(toPlain);
     await db.collection("maintenanceissues").insertMany(allIssues, { ordered: true });
     logger.log(`  ✓ Inserted ${allIssues.length} maintenance issues.`);
 
@@ -1484,6 +1854,7 @@ module.exports = {
   validateFixtures,
   verifyBackupFile,
   verifyDatabaseTarget,
+  verifyMongoUri,
   computeFixtureChecksum,
   getObjectId,
   getDemoPassword,
