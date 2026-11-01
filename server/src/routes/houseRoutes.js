@@ -300,24 +300,30 @@ async function handlePermanentDelete(req, res) {
   }
 
   // Protect demonstration houses listed in _seed_manifest
-  if (mongoose.connection && mongoose.connection.db) {
-    try {
-      const seedManifest = await mongoose.connection.collection("_seed_manifest").findOne({
-        $or: [
-          { "insertedIds.boardinghouses": house._id },
-          { "insertedIds.boardinghouses": String(house._id) },
-          { "insertedIds.boardinghouses": new mongoose.Types.ObjectId(req.params.id) },
-        ],
-      });
+  if (!mongoose.connection || !mongoose.connection.db) {
+    return res.status(500).json({
+      message: "Database connection unavailable for property verification",
+    });
+  }
 
-      if (seedManifest) {
-        return res.status(403).json({
-          message: "Demonstration boarding houses cannot be permanently deleted",
-        });
-      }
-    } catch {
-      // If _seed_manifest collection is absent in isolated tests, ignore
+  try {
+    const seedManifest = await mongoose.connection.collection("_seed_manifest").findOne({
+      $or: [
+        { "insertedIds.boardinghouses": house._id },
+        { "insertedIds.boardinghouses": String(house._id) },
+        { "insertedIds.boardinghouses": new mongoose.Types.ObjectId(req.params.id) },
+      ],
+    });
+
+    if (seedManifest) {
+      return res.status(403).json({
+        message: "Demonstration boarding houses cannot be permanently deleted",
+      });
     }
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to verify property protection status",
+    });
   }
 
   // Reject any property linked to requests, memberships, community posts or maintenance issues

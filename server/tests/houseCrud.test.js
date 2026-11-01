@@ -530,3 +530,45 @@ test("Backward Compatibility: Existing Archive functionality preserved on DELETE
   // Cleanup
   await BoardingHouse.deleteOne({ _id: house._id });
 });
+
+
+test("Regression: Failed _seed_manifest query fails safely and never permits deletion", async () => {
+  const house = await BoardingHouse.create({
+    ownerId: owner1User._id,
+    title: "Manifest Failure Test House",
+    description: "Testing fail-safe behavior when manifest lookup throws an error",
+    city: "Moratuwa",
+    area: "Katubedda",
+    monthlyRentLkr: 20000,
+    status: "ACTIVE",
+  });
+
+  const owner1Cookie = await loginAs(owner1User._id);
+
+  // Temporarily stub collection("_seed_manifest").findOne to simulate a database query error
+  const manifestCol = mongoose.connection.collection("_seed_manifest");
+  const originalFindOne = manifestCol.findOne;
+  manifestCol.findOne = async () => {
+    throw new Error("Simulated unexpected database failure during manifest check");
+  };
+
+  try {
+    const res = await request(`/api/houses/${house._id}/permanent`, {
+      method: "DELETE",
+      cookie: owner1Cookie,
+      csrf: CSRF_TOKEN,
+    });
+
+    assert.equal(res.status, 500, "Must return 500 error when manifest lookup fails");
+    assert.match(res.body.message, /failed to verify property protection status/i);
+
+    // CRITICAL: Verify the property was NOT deleted from MongoDB
+    const stillInDb = await BoardingHouse.findById(house._id);
+    assert.ok(stillInDb, "Property MUST NOT be deleted if manifest lookup query fails");
+    assert.equal(stillInDb.status, "ACTIVE");
+  } finally {
+    // Restore original method
+    manifestCol.findOne = originalFindOne;
+    await BoardingHouse.deleteOne({ _id: house._id });
+  }
+});
